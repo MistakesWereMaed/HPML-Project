@@ -1,0 +1,16 @@
+# Ignore GRIB (GRIdded Binary) files
+*.grib
+*.grb
+*.grib2
+*.grb2
+
+# Ignore NetCDF (Network Common Data Form) files
+*.nc
+*.nc4
+
+# Ignore any temporary or backup files
+*.tmp
+*.bak
+
+# Ignore any hidden system files (Mac & Linux)
+.DS_Store
