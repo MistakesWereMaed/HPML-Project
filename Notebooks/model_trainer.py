@@ -58,10 +58,11 @@ def train(model, loss_function, optimizer, train, val, num_epochs, path_weights_
         print("No checkpoint found, starting training from scratch.")
 
     for epoch in range(start_epoch, num_epochs):
+        torch.cuda.empty_cache()
         start_time = time.time()
-        model.train()
+        
         total_loss = 0.0
-
+        model.train()
         progress_bar = tqdm(train, desc=f"Epoch {epoch+1}/{num_epochs}", leave=True)
         for inputs, targets in progress_bar:
             inputs, targets = inputs.to(device), targets.to(device)

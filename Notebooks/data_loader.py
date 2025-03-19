@@ -21,7 +21,7 @@ class XarrayDataset(Dataset):
         x_list = []
         for var in self.input_vars:
             x_list.append(self.ds[var].isel(time=slice(idx, idx + self.input_days)).values)
-        x = np.stack(x_list, axis=0)  # Stack along a new axis (channels dimension)
+        x = np.stack(x_list, axis=0) 
 
         # Select next `target_days` timesteps for target variables
         y_list = []
@@ -30,7 +30,7 @@ class XarrayDataset(Dataset):
         y = np.stack(y_list, axis=0)
 
         # Reshape: Merge time into the channel dimension (for Conv2D)
-        x = x.transpose(1, 0, 2, 3)  # Time becomes the channel dimension
+        x = x.transpose(1, 0, 2, 3)
         x = x.reshape(-1, x.shape[2], x.shape[3])
 
         y = y.transpose(1, 0, 2, 3)
@@ -43,10 +43,10 @@ class XarrayDataset(Dataset):
         return x_tensor, y_tensor
 
     
-def load_dataset(path, batch_size=32, shuffle=False, num_workers=4, input_days=7, target_days=15):
+def load_dataset(path, batch_size=8, shuffle=False, num_workers=4, input_days=7, target_days=15):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo']
 
     ds = xr.open_dataset(path, chunks="auto")
     dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=True)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
