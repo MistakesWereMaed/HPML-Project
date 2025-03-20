@@ -33,8 +33,8 @@ class XarrayDataset(Dataset):
         x = x.transpose(1, 0, 2, 3)
         x = x.reshape(-1, x.shape[2], x.shape[3])
 
-        y = y.transpose(1, 0, 2, 3)
-        y = y.reshape(-1, y.shape[2], y.shape[3])
+        #y = y.transpose(1, 0, 2, 3)
+        #y = y.reshape(-1, y.shape[2], y.shape[3])
 
         # Convert to tensors
         x_tensor = torch.tensor(x, dtype=torch.float32)
@@ -43,10 +43,13 @@ class XarrayDataset(Dataset):
         return x_tensor, y_tensor
 
     
-def load_dataset(path, batch_size=8, shuffle=False, num_workers=4, input_days=7, target_days=15):
+def load_dataset(path, batch_size=8, downsampling_scale = 1,num_workers=4, input_days=7, target_days=15):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo']
 
     ds = xr.open_dataset(path, chunks="auto")
+    if downsampling_scale >= 1:
+        ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
+
     dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
