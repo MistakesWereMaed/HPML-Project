@@ -60,7 +60,7 @@ def validate(model, val, loss_function, device="cuda"):
     print(f"Validation Loss: {avg_val_loss:.4f}")
     return avg_val_loss
 
-def train(model, loss_function, optimizer, train, val, num_epochs, path_model, patience=10, start_epoch=0):
+def train(model, loss_function, optimizer, train, val, epochs, path_model, patience=10, start_epoch=0):
     # Use CUDA if available
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
@@ -85,12 +85,12 @@ def train(model, loss_function, optimizer, train, val, num_epochs, path_model, p
     scaler = torch.GradScaler(device)
     patience_counter = 0
     # Epoch training loop
-    for epoch in range(start_epoch, num_epochs):
+    for epoch in range(start_epoch, epochs):
         # Epoch initialization
         torch.cuda.empty_cache()
         total_loss = 0.0
         model.train()
-        progress_bar = tqdm(train, desc=f"Epoch {epoch+1}/{num_epochs}", leave=True)
+        progress_bar = tqdm(train, desc=f"Epoch {epoch+1}/{epochs}", leave=True)
         start_time = time.time()
         # Inner training loop
         for inputs, targets in progress_bar:
@@ -110,7 +110,7 @@ def train(model, loss_function, optimizer, train, val, num_epochs, path_model, p
         # Epoch summary
         end_time = time.time()
         avg_loss = total_loss / len(train)
-        print(f"Epoch {epoch+1}/{num_epochs} - Training Loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch+1}/{epochs} - Training Loss: {avg_loss:.4f}")
         # Validation and metrics
         val_loss = validate(model, val, loss_function, device)
         metrics["epoch_time"].append(end_time - start_time)
