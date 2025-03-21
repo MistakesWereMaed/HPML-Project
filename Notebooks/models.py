@@ -120,12 +120,12 @@ class PICPModel(nn.Module):
         return {
             "input_days": hp.choice("input_days", [1, 3, 7]),
             "target_days": hp.choice("target_days", [1, 7, 15]),
-            "batch_size": hp.choice("batch_size", [1, 2, 4]),
-            "kernel_size": hp.choice("kernel_size", [(3, 3), (5, 10), (7, 7)]),
-            "linformer_k": hp.quniform("linformer_k", 128, 512, 128),
+            "batch_size": 2,
+            "kernel_size": (5, 10),
+            "linformer_k": 256,
             "num_heads": hp.choice("num_heads", [1, 2, 4]),
-            "embed_dim": hp.quniform("embed_dim", 128, 512, 128),
-            "mlp_hidden_dim": hp.quniform("mlp_hidden_dim", 128, 512, 128),
+            "embed_dim": 256,
+            "mlp_hidden_dim": 256,
             "learning_rate": hp.loguniform("learning_rate", -7, -4),
         }
     

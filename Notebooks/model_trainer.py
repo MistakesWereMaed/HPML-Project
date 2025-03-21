@@ -89,7 +89,7 @@ def train_experiment(rank, epochs=1, **model_kwargs):
     scaler = torch.GradScaler()
     for epoch in range(epochs):
         train_ds.sampler.set_epoch(epoch)
-        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler, use_progressbar=False)
+        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler, use_progressbar=True)
         print(f"GPU {rank} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss}")
     # Compute Validation Loss
     avg_val_loss = validate(rank, model, val_ds, loss_function)
