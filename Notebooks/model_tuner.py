@@ -25,8 +25,8 @@ def objective(params, model_class):
 
 def main(args):
     # Select model
-    model = args["model"]
-    match model:
+    model_type = args["model"]
+    match model_type:
         case "PINN":
             model_class = PICPModel
         #case "GNN":
@@ -50,9 +50,9 @@ def main(args):
     best_params = best
     
     # Save best hyperparameters
-    with open(f"{PATH_PARAMS}/{model}.json", "w") as f:
+    with open(f"{PATH_PARAMS}/{model_type}.json", "w") as f:
         json.dump({
-            'loss': int(best_loss),
+            'loss': float(best_loss),
             'params': {k: int(v) if isinstance(v, (np.integer, torch.Tensor)) else v for k, v in best_params.items()}
         }, f)
     print(f"Best hyperparameters saved with loss {best_loss:.4f}")

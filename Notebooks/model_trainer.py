@@ -104,6 +104,7 @@ def train_experiment(rank, epochs=5, **model_kwargs):
 def train(rank, world_size, model_class, epochs=5, patience=10):
     model_kwargs = model_class.initialize_model()
     # Unpack kwargs
+    name = model_kwargs["name"]
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]
     optimizer = model_kwargs["optimizer"]
@@ -114,7 +115,7 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
     model.to(f"cuda:{rank}")
     model = DDP(model, device_ids=[rank])
     # Load Checkpoint if Available
-    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/Checkpoints/current.ckpt", model, optimizer)
+    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}/current.ckpt", model, optimizer)
     patience_counter = 0
     # Training Loop
     scaler = torch.GradScaler()
@@ -143,11 +144,11 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
                 best_val_loss = avg_val_loss
                 patience_counter = 0
 
-                save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{PATH_WEIGHTS}/best.ckpt")
+                save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{PATH_WEIGHTS}/{name}/best.ckpt")
                 print(f"New best model saved!")
 
             patience_counter += 1
-            save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/current.ckpt")
+            save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/{name}/current.ckpt")
             # Early Stopping
             if patience_counter >= patience:
                 print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss}")
@@ -155,15 +156,15 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
 
     if rank == 0:
         df = pd.DataFrame(metrics)
-        df.to_csv(f"{PATH_METRICS}/metrics.csv", index=False)
+        df.to_csv(f"{PATH_METRICS}/{name}/metrics.csv", index=False)
     cleanup()
 
 def main(args):
-    model = args["model"]
+    model_type = args["model"]
     epochs = args["epochs"]
     patience = args["patience"]
     # Select model
-    match model:
+    match model_type:
         case "PINN":
             model_class = PICPModel
         #case "GNN": 

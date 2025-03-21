@@ -92,7 +92,7 @@ class PhysicsInformedModule(nn.Module):
         if torch.isnan(v_g).any() or torch.isinf(v_g).any():
             print("NaN detected in v_g (geostrophic velocity)")
             exit(1)
-            
+
         return u_g, v_g
     
 class SumModule(nn.Module):
@@ -177,6 +177,7 @@ class PICPModel(nn.Module):
         optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
         # Package returns
         model_kwargs = {
+            "name": "PICP",
             "model": model,
             "loss_function": loss_function,
             "optimizer": optimizer,
