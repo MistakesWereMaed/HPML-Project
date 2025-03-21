@@ -44,17 +44,17 @@ def main(args):
         #case "FNO":
         case _:
             raise ValueError(f"Unknown model type")
-    
+    # Initialize model
     model_kwargs = model_class.initialize_model(testing=True)
     name = model_kwargs["name"]
     model = model_kwargs["model"]
     optimizer = model_kwargs["optimizer"]
     loss_function = model_kwargs["loss_function"]
     test_ds = model_kwargs["data"][0]
-
+    # Load weights and test
     load_checkpoint(f"{PATH_WEIGHTS}/{name}/current.ckpt", model, optimizer)
     loss, predictions, targets = test(model, test_ds, loss_function)
-
+    # Save results
     results_path = f"{PATH_RESULTS}/{model_type}.npz"
     np.savez_compressed(
         results_path,
@@ -63,7 +63,6 @@ def main(args):
         targets=targets.cpu().numpy()
     )
 
-# Launch Training on Multiple GPUs
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")

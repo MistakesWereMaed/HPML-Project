@@ -1,4 +1,3 @@
-import time
 import os
 import pandas as pd
 import argparse
@@ -50,12 +49,8 @@ def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use
         inputs, targets = inputs.to(f"cuda:{rank}"), targets.to(f"cuda:{rank}")
         optimizer.zero_grad()
         # Mixed precision training
-        #with torch.autocast("cuda"):
         predictions = model(inputs)
-        if torch.isnan(predictions).any():
-            print("Warning: NaN detected in model predictions")
-
-            loss = loss_function(predictions, targets)
+        loss = loss_function(predictions, targets)
         # Backward pass
         scaler.scale(loss).backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -121,24 +116,20 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
     scaler = torch.GradScaler()
     for epoch in range(start_epoch, epochs):
         train_ds.sampler.set_epoch(epoch)
-
-        start_time = time.time()
+        # Compute Training and Validation Loss
         avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler)
-        end_time = time.time()
         avg_val_loss = validate(rank, model, val_ds, loss_function)
         # Use all reduce to get metrics
-        metrics_tensor = torch.tensor([avg_train_loss, avg_val_loss, end_time - start_time], dtype=torch.float, device=f"cuda:{rank}")
+        metrics_tensor = torch.tensor([avg_train_loss, avg_val_loss], dtype=torch.float, device=f"cuda:{rank}")
         dist.all_reduce(metrics_tensor, op=dist.ReduceOp.SUM)
         # Average the values by dividing by the number of GPUs
         avg_train_loss = metrics_tensor[0].item() / world_size
         avg_val_loss = metrics_tensor[1].item() / world_size
-        avg_epoch_time = metrics_tensor[2].item() / world_size
         # Update on only GPU 0 
         if rank == 0:
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss} - Val Loss: {avg_val_loss}")
             metrics["train_loss"].append(avg_train_loss)
             metrics["val_loss"].append(avg_val_loss)
-            metrics["epoch_time"].append(avg_epoch_time)
             # Checkpointing
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss

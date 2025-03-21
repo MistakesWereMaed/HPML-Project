@@ -6,7 +6,6 @@ import sys
 import argparse
 
 from hyperopt import fmin, tpe, Trials
-from hyperopt.exceptions import AllTrialsFailed
 from functools import partial
 from models import PICPModel
 from model_trainer import train_experiment
@@ -33,29 +32,25 @@ def main(args):
         #case "FNO":
         case _:
             raise ValueError(f"Unknown model type")
-    
     # Define hyperparameter space
     space = model_class.get_hyperparam_space()
     objective_with_args = partial(objective, model_class=model_class)
-    
     # Perform hyperparameter tuning
     try:
         trials = Trials()
         best = fmin(fn=objective_with_args, space=space, algo=tpe.suggest, max_evals=args["trials"], trials=trials)
-    except AllTrialsFailed:
-        print("All trials failed.")
-        sys.exit()
-    
-    best_loss = trials.best_trial['result']['loss']
-    best_params = best
-    
-    # Save best hyperparameters
-    with open(f"{PATH_PARAMS}/{model_type}.json", "w") as f:
-        json.dump({
-            'loss': float(best_loss),
-            'params': {k: int(v) if isinstance(v, (np.integer, torch.Tensor)) else v for k, v in best_params.items()}
-        }, f)
-    print(f"Best hyperparameters saved with loss {best_loss:.4f}")
+        best_loss = trials.best_trial['result']['loss']
+        best_params = best
+        # Save best hyperparameters
+        with open(f"{PATH_PARAMS}/{model_type}.json", "w") as f:
+            json.dump({
+                'loss': float(best_loss),
+                'params': {k: int(v) if isinstance(v, (np.integer, torch.Tensor)) else v for k, v in best_params.items()}
+            }, f)
+        print(f"Best hyperparameters saved with loss {best_loss:.4f}")
+    # Handle exceptions
+    except Exception as e:
+        print(f"Hyperparameter tuning failed: {e}")
 
 if __name__ == "__main__":
     # Parse command line arguments
