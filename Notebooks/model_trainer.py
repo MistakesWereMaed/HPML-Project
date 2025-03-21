@@ -78,7 +78,7 @@ def validate(rank, model, val_loader, loss_function):
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
-def train_experiment(rank, epochs=1, **model_kwargs):
+def train_experiment(rank, epochs=5, **model_kwargs):
     # Unpack kwargs
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]

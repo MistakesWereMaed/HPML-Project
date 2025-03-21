@@ -1,4 +1,7 @@
 import json
+import torch
+import numpy as np
+import torch
 import sys
 import argparse
 
@@ -48,7 +51,10 @@ def main(args):
     
     # Save best hyperparameters
     with open(f"{PATH_PARAMS}/{model}.json", "w") as f:
-        json.dump({'loss': best_loss, 'params': best_params}, f)
+        json.dump({
+            'loss': int(best_loss),
+            'params': {k: int(v) if isinstance(v, (np.integer, torch.Tensor)) else v for k, v in best_params.items()}
+        }, f)
     print(f"Best hyperparameters saved with loss {best_loss:.4f}")
 
 if __name__ == "__main__":
