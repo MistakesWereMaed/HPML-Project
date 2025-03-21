@@ -29,6 +29,10 @@ class DataDrivenModule(nn.Module):
     def __init__(self, image_size, in_channels=3, kernel_size=(5, 10), num_heads=4, embed_dim=768, linformer_k=256, dropout_p=0.1, mlp_hidden_dim=768, out_channels=3, **kwargs):
         super(DataDrivenModule, self).__init__()
 
+        embed_dim = int(embed_dim)
+        linformer_k = int(linformer_k)
+        mlp_hidden_dim = int(mlp_hidden_dim)
+
         self.conv = nn.Conv2d(
             in_channels=in_channels, 
             out_channels=embed_dim, 
@@ -143,19 +147,21 @@ class PICPModel(nn.Module):
                 "learning_rate": 7e-4,
             }
         return params
+    
     @staticmethod
-    def initialize_model(downsampling_scale=2, testing=False, **kwargs):
+    def initialize_model(downsampling_scale=2, path_train=PATH_TRAIN, path_val=PATH_VAL, path_test=PATH_TEST, testing=False, **kwargs):
         params = PICPModel.load_params() if not kwargs else kwargs
         # Load dataset
         if testing:
-            data = (load_dataset(PATH_TEST, downsampling_scale=downsampling_scale, **params))
+            data = (load_dataset(path_test, downsampling_scale=downsampling_scale, **params))
         else:
-            train_loader = load_dataset(PATH_TRAIN, downsampling_scale=downsampling_scale, **params)
-            val_loader = load_dataset(PATH_VAL, downsampling_scale=downsampling_scale, **params)
+            train_loader = load_dataset(path_train, downsampling_scale=downsampling_scale, **params)
+            val_loader = load_dataset(path_val, downsampling_scale=downsampling_scale, **params)
             data = (train_loader, val_loader)
         # Get image size
         features, _ = next(iter(data[0]))
         image_size = features.shape[2:]
+
         # Calculate channel dimensions
         in_channels = NUM_FEATURES * params["input_days"]
         out_channels = NUM_FEATURES * params["target_days"]

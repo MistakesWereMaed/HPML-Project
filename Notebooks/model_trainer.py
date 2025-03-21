@@ -1,4 +1,5 @@
 import time
+import os
 import pandas as pd
 import argparse
 import torch
@@ -13,6 +14,9 @@ PATH_WEIGHTS = "../Models/Weights"
 PATH_METRICS = "../Models/Metrics"
 
 def setup(rank, world_size):
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
+    
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
 
@@ -37,16 +41,17 @@ def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
         "metrics": metrics
     }, path)
 
-def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler):
+def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use_progressbar = True):
+    model.to(f"cuda:{rank}")
     model.train()
     total_loss = 0.0
-    progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=False) if rank == 0 else None
+    progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=False) if use_progressbar else train_loader
     # Training Loop
-    for inputs, targets in train_loader:
-        inputs, targets = inputs.to(rank), targets.to(rank)
+    for inputs, targets in progress_bar:
+        inputs, targets = inputs.to(f"cuda:{rank}"), targets.to(f"cuda:{rank}")
         optimizer.zero_grad()
         # Mixed precision training
-        with torch.autocast(rank):
+        with torch.autocast("cuda"):
             predictions = model(inputs)
             loss = loss_function(predictions, targets)
         # Backward pass
@@ -55,7 +60,7 @@ def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler):
         scaler.update()
         # Progress update
         total_loss += loss.item()
-        if progress_bar:
+        if use_progressbar:
             progress_bar.set_postfix(loss=loss.item())
 
     return total_loss / len(train_loader)
@@ -73,7 +78,7 @@ def validate(rank, model, val_loader, loss_function):
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
-def train_experiment(rank, epochs=5, **model_kwargs):
+def train_experiment(rank, epochs=1, **model_kwargs):
     # Unpack kwargs
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]
@@ -84,15 +89,12 @@ def train_experiment(rank, epochs=5, **model_kwargs):
     scaler = torch.GradScaler()
     for epoch in range(epochs):
         train_ds.sampler.set_epoch(epoch)
-        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler)
-
-        if rank == 0:  
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
+        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler, use_progressbar=False)
+        print(f"GPU {rank} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss}")
     # Compute Validation Loss
     avg_val_loss = validate(rank, model, val_ds, loss_function)
-    if rank == 0:
-        print(f"Validation Loss: {avg_val_loss:.4f}")
-        return avg_val_loss
+    print(f"GPU {rank} - Validation Loss: {avg_val_loss}")
+    return avg_val_loss
     
 # Main Training Function
 def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
@@ -126,7 +128,7 @@ def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
         avg_epoch_time = metrics_tensor[2].item() / world_size
         # Update on only GPU 0 
         if rank == 0:
-            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss} - Val Loss: {avg_val_loss}")
             metrics["train_loss"].append(avg_train_loss)
             metrics["val_loss"].append(avg_val_loss)
             metrics["epoch_time"].append(avg_epoch_time)
@@ -142,7 +144,7 @@ def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
             save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/current.ckpt")
             # Early Stopping
             if patience_counter >= patience:
-                print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss:.4f}")
+                print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss}")
                 break
 
     if rank == 0:
@@ -152,13 +154,14 @@ def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
 
 def main(args):
     # Select model
-    match args["model"]:
+    model = args["model"]
+    match model:
         case "PINN":
             model_class = PICPModel
         #case "GNN": 
         #case "FNO":
         case _:
-            raise ValueError(f"Unknown model type: {args["model"]}")
+            raise ValueError(f"Unknown model type")
     model_kwargs = model_class.initialize_model()
     # Launch training on multiple GPUs
     world_size = torch.cuda.device_count()
