@@ -1,137 +1,178 @@
 import time
-import torch
 import pandas as pd
+import argparse
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 from tqdm import tqdm
+from torch.nn.parallel import DistributedDataParallel as DDP
+from models import PICPModel
 
-def save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, filepath):
-    checkpoint = {
+PATH_WEIGHTS = "../Models/Weights"
+PATH_METRICS = "../Models/Metrics"
+
+def setup(rank, world_size):
+    dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+
+def cleanup():
+    dist.destroy_process_group()
+
+def load_checkpoint(path, model, optimizer):
+    try:
+        checkpoint = torch.load(path, map_location="cuda")
+        model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+        return checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["metrics"]
+    except FileNotFoundError:
+        return 0, float("inf"), {"train_loss": [], "val_loss": [], "epoch_time": []}
+
+def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
+    torch.save({
         "epoch": epoch,
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
-        "best_val_loss": best_val_loss,
+        "best_val_loss": val_loss,
         "metrics": metrics
-    }
-    torch.save(checkpoint, filepath)
+    }, path)
 
-def load_checkpoint(filepath):
-    checkpoint = torch.load(filepath, weights_only=True)
-    return checkpoint
-
-
-
-def test(model, test_loader, loss_function, device="cuda"):
-    model.to(device)
-    model.eval()
-    # Initialize return variables
+def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler):
+    model.train()
     total_loss = 0.0
-    all_predictions = []
-    all_targets = []
-    # Testing loop
-    with torch.no_grad():
-        for inputs, targets in tqdm(test_loader, desc="Testing"):
-            inputs, targets = inputs.to(device), targets.to(device)
-            # Forward pass
+    progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=False) if rank == 0 else None
+    # Training Loop
+    for inputs, targets in train_loader:
+        inputs, targets = inputs.to(rank), targets.to(rank)
+        optimizer.zero_grad()
+        # Mixed precision training
+        with torch.autocast(rank):
             predictions = model(inputs)
             loss = loss_function(predictions, targets)
-            # Progress update
-            total_loss += loss.item()
-            all_predictions.append(predictions.cpu())
-            all_targets.append(targets.cpu())
-    # Testing summary
-    avg_loss = total_loss / len(test_loader)
-    print(f"Test Loss: {avg_loss:.4f}")
-
-    return avg_loss, torch.cat(all_predictions), torch.cat(all_targets)
-
-def validate(model, val, loss_function, device="cuda"):
-    model.eval()
-    val_loss = 0.0
-    # Validation loop
-    with torch.no_grad():
-        for inputs, targets in val:
-            inputs, targets = inputs.to(device), targets.to(device)
-            # Forward pass
-            predictions = model(inputs)
-            loss = loss_function(predictions, targets)
-            val_loss += loss.item()
-    # Validation summary
-    avg_val_loss = val_loss / len(val)
-    print(f"Validation Loss: {avg_val_loss:.4f}")
-    return avg_val_loss
-
-def train(model, loss_function, optimizer, train, val, epochs, path_model, patience=10, start_epoch=0):
-    # Use CUDA if available
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
-    # Load checkpoint
-    try:
-        checkpoint = load_checkpoint(f"{path_model}/Checkpoints/current.ckpt")
-
-        model.load_state_dict(checkpoint["model_state"])
-        optimizer.load_state_dict(checkpoint["optimizer_state"])
-        start_epoch = checkpoint["epoch"] + 1
-        best_val_loss = checkpoint["best_val_loss"]
-        metrics = checkpoint["metrics"]
-
-        print(f"Resuming training from epoch {start_epoch} (Best val loss: {best_val_loss:.4f})")
-    except FileNotFoundError:
-        start_epoch = 0
-        best_val_loss = float("inf")
-        metrics = {"train_loss": [], "val_loss": [], "epoch_time": []}
-
-        print("No checkpoint found, starting training from scratch.")
-    # Gradient scaler for mixed precision
-    scaler = torch.GradScaler(device)
-    patience_counter = 0
-    # Epoch training loop
-    for epoch in range(start_epoch, epochs):
-        # Epoch initialization
-        torch.cuda.empty_cache()
-        total_loss = 0.0
-        model.train()
-        progress_bar = tqdm(train, desc=f"Epoch {epoch+1}/{epochs}", leave=True)
-        start_time = time.time()
-        # Inner training loop
-        for inputs, targets in progress_bar:
-            inputs, targets = inputs.to(device), targets.to(device)
-            optimizer.zero_grad()
-            # Forward pass
-            with torch.autocast(device):
-                predictions = model(inputs)
-                loss = loss_function(predictions, targets)
-            # Backpropagation
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            # Progress update
-            total_loss += loss.item()
+        # Backward pass
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        # Progress update
+        total_loss += loss.item()
+        if progress_bar:
             progress_bar.set_postfix(loss=loss.item())
-        # Epoch summary
-        end_time = time.time()
-        avg_loss = total_loss / len(train)
-        print(f"Epoch {epoch+1}/{epochs} - Training Loss: {avg_loss:.4f}")
-        # Validation and metrics
-        val_loss = validate(model, val, loss_function, device)
-        metrics["epoch_time"].append(end_time - start_time)
-        metrics["train_loss"].append(avg_loss)
-        metrics["val_loss"].append(val_loss)
-        # Checkpoint saving
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0 
-            print(f"Updating best checkpoint...")
-            #save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{path_model}/Checkpoints/best.ckpt")
-        else:
-            patience_counter += 1
-        #save_checkpoint(model, optimizer, epoch, val_loss, metrics, f"{path_model}/Checkpoints/current.ckpt")
-        # Early stopping check
-        if patience_counter >= patience:
-            print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss:.4f}")
-            break
-    # Save metrics
-    df = pd.DataFrame(metrics)
-    df.to_csv(f"{path_model}/metrics.csv", index=False)
-    print("Training complete!")
+
+    return total_loss / len(train_loader)
+
+def validate(rank, model, val_loader, loss_function):
+    model.eval()
+    total_loss = 0.0
+    # Validation Loop
+    with torch.no_grad():
+        for inputs, targets in val_loader:
+            inputs, targets = inputs.to(rank), targets.to(rank)
+            predictions = model(inputs)
+            # Progress update
+            loss = loss_function(predictions, targets)
+            total_loss += loss.item()
+    return total_loss / len(val_loader)
+
+def train_experiment(rank, epochs=5, **model_kwargs):
+    # Unpack kwargs
+    model = model_kwargs["model"]
+    loss_function = model_kwargs["loss_function"]
+    optimizer = model_kwargs["optimizer"]
+    train_ds = model_kwargs["data"][0]
+    val_ds = model_kwargs["data"][1]
+    # Training Loop
+    scaler = torch.GradScaler()
+    for epoch in range(epochs):
+        train_ds.sampler.set_epoch(epoch)
+        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler)
+
+        if rank == 0:  
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
+    # Compute Validation Loss
+    avg_val_loss = validate(rank, model, val_ds, loss_function)
+    if rank == 0:
+        print(f"Validation Loss: {avg_val_loss:.4f}")
+        return avg_val_loss
     
-    return metrics
+# Main Training Function
+def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
+    # Unpack kwargs
+    model = model_kwargs["model"]
+    loss_function = model_kwargs["loss_function"]
+    optimizer = model_kwargs["optimizer"]
+    train_ds = model_kwargs["data"][0]
+    val_ds = model_kwargs["data"][1]
+    # Initialize DDP
+    setup(rank, world_size)
+    model = DDP(model, device_ids=[rank])
+    # Load Checkpoint if Available
+    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/Checkpoints/current.ckpt", model, optimizer)
+    patience_counter = 0
+    # Training Loop
+    scaler = torch.GradScaler()
+    for epoch in range(start_epoch, epochs):
+        train_ds.sampler.set_epoch(epoch)
+
+        start_time = time.time()
+        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler)
+        end_time = time.time()
+        avg_val_loss = validate(rank, model, val_ds, loss_function)
+        # Use all reduce to get metrics
+        metrics_tensor = torch.tensor([avg_train_loss, avg_val_loss, end_time - start_time], dtype=torch.float, device=f"cuda:{rank}")
+        dist.all_reduce(metrics_tensor, op=dist.ReduceOp.SUM)
+        # Average the values by dividing by the number of GPUs
+        avg_train_loss = metrics_tensor[0].item() / world_size
+        avg_val_loss = metrics_tensor[1].item() / world_size
+        avg_epoch_time = metrics_tensor[2].item() / world_size
+        # Update on only GPU 0 
+        if rank == 0:
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
+            metrics["train_loss"].append(avg_train_loss)
+            metrics["val_loss"].append(avg_val_loss)
+            metrics["epoch_time"].append(avg_epoch_time)
+            # Checkpointing
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                patience_counter = 0
+
+                save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{PATH_WEIGHTS}/best.ckpt")
+                print(f"New best model saved!")
+
+            patience_counter += 1
+            save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/current.ckpt")
+            # Early Stopping
+            if patience_counter >= patience:
+                print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss:.4f}")
+                break
+
+    if rank == 0:
+        df = pd.DataFrame(metrics)
+        df.to_csv(f"{PATH_METRICS}/metrics.csv", index=False)
+    cleanup()
+
+def main(args):
+    # Select model
+    match args["model"]:
+        case "PINN":
+            model_class = PICPModel
+        #case "GNN": 
+        #case "FNO":
+        case _:
+            raise ValueError(f"Unknown model type: {args["model"]}")
+    model_kwargs = model_class.initialize_model()
+    # Launch training on multiple GPUs
+    world_size = torch.cuda.device_count()
+    if world_size > 1:
+        mp.spawn(train, args=(world_size, model_kwargs), nprocs=world_size)
+    else:
+        train(0, world_size, model_kwargs)
+    
+# Launch Training on Multiple GPUs
+if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
+    parser.add_argument("--model", type=str, required=True, help="Type of model")
+    parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
+    args = parser.parse_args()
+    
+    main(vars(args))
