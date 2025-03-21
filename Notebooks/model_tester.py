@@ -52,7 +52,7 @@ def main(args):
     loss_function = model_kwargs["loss_function"]
     test_ds = model_kwargs["data"][0]
     # Load weights and test
-    load_checkpoint(f"{PATH_WEIGHTS}/{name}/current.ckpt", model, optimizer)
+    load_checkpoint(f"{PATH_WEIGHTS}/{name}-current.ckpt", model, optimizer)
     loss, predictions, targets = test(model, test_ds, loss_function)
     # Save results
     results_path = f"{PATH_RESULTS}/{model_type}.npz"

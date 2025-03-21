@@ -141,14 +141,14 @@ class PICPModel(nn.Module):
                 params = json.load(f)
         except FileNotFoundError:
             params = {
-                "input_days": 1,
-                "target_days": 1,
+                "input_days": 7,
+                "target_days": 3,
                 "batch_size": 2,
                 "kernel_size": (5, 10),
                 "linformer_k": 256,
                 "num_heads": 1,
-                "embed_dim": 128,
-                "mlp_hidden_dim": 128,
+                "embed_dim": 256,
+                "mlp_hidden_dim": 256,
                 "learning_rate": 7e-4,
             }
         return params

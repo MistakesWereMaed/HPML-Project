@@ -14,7 +14,7 @@ PATH_METRICS = "../Models/Metrics"
 
 def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '12356'
     
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
     torch.cuda.set_device(rank)
@@ -43,7 +43,7 @@ def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
 def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use_progressbar = True):
     model.train()
     total_loss = 0.0
-    progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=False) if use_progressbar else train_loader
+    progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=True) if use_progressbar else train_loader
     # Training Loop
     for inputs, targets in progress_bar:
         inputs, targets = inputs.to(f"cuda:{rank}"), targets.to(f"cuda:{rank}")
@@ -110,7 +110,7 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
     model.to(f"cuda:{rank}")
     model = DDP(model, device_ids=[rank])
     # Load Checkpoint if Available
-    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}/current.ckpt", model, optimizer)
+    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}-current.ckpt", model, optimizer)
     patience_counter = 0
     # Training Loop
     scaler = torch.GradScaler()
@@ -135,11 +135,11 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
                 best_val_loss = avg_val_loss
                 patience_counter = 0
 
-                save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{PATH_WEIGHTS}/{name}/best.ckpt")
+                save_checkpoint(model, optimizer, epoch, best_val_loss, metrics, f"{PATH_WEIGHTS}/{name}-best.ckpt")
                 print(f"New best model saved!")
 
             patience_counter += 1
-            save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/{name}/current.ckpt")
+            save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/{name}-current.ckpt")
             # Early Stopping
             if patience_counter >= patience:
                 print(f"Early stopping triggered after {epoch+1} epochs. Best val loss: {best_val_loss}")
@@ -147,7 +147,7 @@ def train(rank, world_size, model_class, epochs=5, patience=10):
 
     if rank == 0:
         df = pd.DataFrame(metrics)
-        df.to_csv(f"{PATH_METRICS}/{name}/metrics.csv", index=False)
+        df.to_csv(f"{PATH_METRICS}/{name}-metrics.csv", index=False)
     cleanup()
 
 def main(args):
