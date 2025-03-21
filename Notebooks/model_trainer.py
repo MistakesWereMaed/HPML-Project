@@ -50,11 +50,15 @@ def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use
         inputs, targets = inputs.to(f"cuda:{rank}"), targets.to(f"cuda:{rank}")
         optimizer.zero_grad()
         # Mixed precision training
-        with torch.autocast("cuda"):
-            predictions = model(inputs)
+        #with torch.autocast("cuda"):
+        predictions = model(inputs)
+        if torch.isnan(predictions).any():
+            print("Warning: NaN detected in model predictions")
+
             loss = loss_function(predictions, targets)
         # Backward pass
         scaler.scale(loss).backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         scaler.step(optimizer)
         scaler.update()
         # Progress update
@@ -89,7 +93,7 @@ def train_experiment(rank, epochs=5, **model_kwargs):
     scaler = torch.GradScaler()
     for epoch in range(epochs):
         train_ds.sampler.set_epoch(epoch)
-        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler, use_progressbar=True)
+        avg_train_loss = train_epoch(rank, model, train_ds, loss_function, optimizer, scaler, use_progressbar=False)
         print(f"GPU {rank} - Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss}")
     # Compute Validation Loss
     avg_val_loss = validate(rank, model, val_ds, loss_function)

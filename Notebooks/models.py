@@ -57,18 +57,17 @@ class DataDrivenModule(nn.Module):
         self.transconv = nn.ConvTranspose2d(in_channels=mlp_hidden_dim, out_channels=out_channels, kernel_size=kernel_size)
 
     def forward(self, x):
-        with torch.autocast("cuda"):
-            x = self.conv(x)
-            batch_size, channels, height, width = x.shape
-            seq_len = height * width
-            x = x.view(batch_size, channels, seq_len).transpose(1, 2)
-            self.attn.seq_len = seq_len
-            x = self.attn(x, context=x)
-            x = self.norm(x)
-            x = self.dropout(x)
-            x = self.mlp(x)
-            x = x.permute(0, 2, 1).view(batch_size, -1, height, width)
-            x = self.transconv(x)
+        x = self.conv(x)
+        batch_size, channels, height, width = x.shape
+        seq_len = height * width
+        x = x.view(batch_size, channels, seq_len).transpose(1, 2)
+        self.attn.seq_len = seq_len
+        x = self.attn(x, context=x)
+        x = self.norm(x)
+        x = self.dropout(x)
+        x = self.mlp(x)
+        x = x.permute(0, 2, 1).view(batch_size, -1, height, width)
+        x = self.transconv(x)
         
         return x  # Returns u', v', SSH
     
@@ -79,15 +78,22 @@ class PhysicsInformedModule(nn.Module):
         self.f = f
 
     def forward(self, ssh):
-        with torch.autocast("cuda"):
-            # Compute gradients ∂SSH/∂x and ∂SSH/∂y using finite differences
-            dudx = torch.diff(ssh, dim=-1, append=ssh[:, :, :, -1:])
-            dvdy = torch.diff(ssh, dim=-2, append=ssh[:, :, -1:, :])
+        # Compute gradients ∂SSH/∂x and ∂SSH/∂y using finite differences
+        dudx = torch.diff(ssh, dim=-1, append=ssh[:, :, :, -1:])
+        dvdy = torch.diff(ssh, dim=-2, append=ssh[:, :, -1:, :])
+        
+        # Compute geostrophic velocity components
+        u_g = self.g / self.f * dvdy
+        v_g = -self.g / self.f * dudx
+
+        if torch.isnan(u_g).any() or torch.isinf(u_g).any():
+            print("NaN detected in u_g (geostrophic velocity)")
+
+        if torch.isnan(v_g).any() or torch.isinf(v_g).any():
+            print("NaN detected in v_g (geostrophic velocity)")
+            exit(1)
             
-            # Compute geostrophic velocity components
-            u_g = self.g / self.f * dvdy
-            v_g = -self.g / self.f * dudx
-            return u_g, v_g
+        return u_g, v_g
     
 class SumModule(nn.Module):
     def forward(self, u_g, v_g, u_prime, v_prime):
@@ -104,16 +110,15 @@ class PICPModel(nn.Module):
         self.sum_module = SumModule()
 
     def forward(self, x):
-        with torch.autocast("cuda"):
-            # Step 1: Data-driven module
-            output = self.data_module(x)
-            u_prime, v_prime, ssh = torch.chunk(output, chunks=3, dim=1)
-            # Step 2: Physics-informed module
-            u_g, v_g = self.physics_module(ssh)
-            # Step 3: Sum module
-            u, v = self.sum_module(u_g, v_g, u_prime, v_prime)
+        # Step 1: Data-driven module
+        output = self.data_module(x)
+        u_prime, v_prime, ssh = torch.chunk(output, chunks=3, dim=1)
+        # Step 2: Physics-informed module
+        u_g, v_g = self.physics_module(ssh)
+        # Step 3: Sum module
+        u, v = self.sum_module(u_g, v_g, u_prime, v_prime)
 
-            return torch.stack((u, v), dim=1)
+        return torch.stack((u, v), dim=1)
 
     @staticmethod
     def get_hyperparam_space():
@@ -138,7 +143,7 @@ class PICPModel(nn.Module):
             params = {
                 "input_days": 1,
                 "target_days": 1,
-                "batch_size": 1,
+                "batch_size": 2,
                 "kernel_size": (5, 10),
                 "linformer_k": 256,
                 "num_heads": 1,
@@ -150,7 +155,8 @@ class PICPModel(nn.Module):
     
     @staticmethod
     def initialize_model(downsampling_scale=2, path_train=PATH_TRAIN, path_val=PATH_VAL, path_test=PATH_TEST, testing=False, **kwargs):
-        params = PICPModel.load_params() if not kwargs else kwargs
+        params = PICPModel.load_params()
+        params.update(kwargs)
         # Load dataset
         if testing:
             data = (load_dataset(path_test, downsampling_scale=downsampling_scale, **params))
@@ -167,7 +173,7 @@ class PICPModel(nn.Module):
         out_channels = NUM_FEATURES * params["target_days"]
         # Initialize model
         model = PICPModel(image_size=image_size, in_channels=in_channels, out_channels=out_channels, **params)
-        loss_function = nn.L1Loss()
+        loss_function = nn.SmoothL1Loss(beta=1.0)
         optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
         # Package returns
         model_kwargs = {
