@@ -42,7 +42,6 @@ def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
     }, path)
 
 def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use_progressbar = True):
-    model.to(f"cuda:{rank}")
     model.train()
     total_loss = 0.0
     progress_bar = tqdm(train_loader, desc=f"Rank {rank} - Training", leave=False) if use_progressbar else train_loader
@@ -85,6 +84,7 @@ def train_experiment(rank, epochs=5, **model_kwargs):
     optimizer = model_kwargs["optimizer"]
     train_ds = model_kwargs["data"][0]
     val_ds = model_kwargs["data"][1]
+    model.to(f"cuda:{rank}")
     # Training Loop
     scaler = torch.GradScaler()
     for epoch in range(epochs):
@@ -97,7 +97,8 @@ def train_experiment(rank, epochs=5, **model_kwargs):
     return avg_val_loss
     
 # Main Training Function
-def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
+def train(rank, world_size, model_class, epochs=5, patience=10):
+    model_kwargs = model_class.initialize_model()
     # Unpack kwargs
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]
@@ -106,6 +107,7 @@ def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
     val_ds = model_kwargs["data"][1]
     # Initialize DDP
     setup(rank, world_size)
+    model.to(f"cuda:{rank}")
     model = DDP(model, device_ids=[rank])
     # Load Checkpoint if Available
     start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/Checkpoints/current.ckpt", model, optimizer)
@@ -153,8 +155,10 @@ def train(rank, world_size, epochs=5, patience=10, **model_kwargs):
     cleanup()
 
 def main(args):
-    # Select model
     model = args["model"]
+    epochs = args["epochs"]
+    patience = args["patience"]
+    # Select model
     match model:
         case "PINN":
             model_class = PICPModel
@@ -162,13 +166,12 @@ def main(args):
         #case "FNO":
         case _:
             raise ValueError(f"Unknown model type")
-    model_kwargs = model_class.initialize_model()
     # Launch training on multiple GPUs
     world_size = torch.cuda.device_count()
     if world_size > 1:
-        mp.spawn(train, args=(world_size, model_kwargs), nprocs=world_size)
+        mp.spawn(train, args=(world_size, model_class, epochs, patience), nprocs=world_size)
     else:
-        train(0, world_size, model_kwargs)
+        train(0, world_size, model_class, epochs, patience)
     
 # Launch Training on Multiple GPUs
 if __name__ == "__main__":
@@ -176,6 +179,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
+    parser.add_argument("--patience", type=int, default=10, help="Early stopping patience")
     args = parser.parse_args()
     
     main(vars(args))
