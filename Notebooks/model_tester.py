@@ -45,7 +45,7 @@ def main(args):
         case _:
             raise ValueError(f"Unknown model type")
     
-    model_kwargs = model_class.initialize_model()
+    model_kwargs = model_class.initialize_model(testing=True)
     name = model_kwargs["name"]
     model = model_kwargs["model"]
     optimizer = model_kwargs["optimizer"]
