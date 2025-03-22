@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from models import PICPModel
 from data_loader import load_dataset
 
-PATH_TRAIN = "../Data/Processed/Train.nc"
+PATH_TRAIN = "../Data/Processed/Test.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 
 PATH_WEIGHTS = "../Models/Weights"
@@ -41,13 +41,10 @@ def load_checkpoint(path, model, optimizer):
         print("Loading checkpoint")
         return checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["metrics"]
     except FileNotFoundError:
-        return 0, float("inf"), {"train_loss": [], "val_loss": []}
+        return 0, float("inf"), {"train_loss": [], "val_loss": [], "epoch": []}
 
 def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        state_dict = model.module.state_dict()
-    else:
-        state_dict = model.state_dict()
+    state_dict = model.state_dict()
 
     checkpoint = {
         "epoch": epoch,
@@ -110,7 +107,7 @@ def train_experiment(rank, model, loss_function, optimizer, train_ds, val_ds, ba
     return avg_val_loss
     
 # Main Training Function
-def train(rank, world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, batch_size, epochs=5, patience=10):
+def train(rank, world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, batch_size, start_epoch, best_val_loss, metrics, epochs=5, patience=10):
     # Initialize DDP
     setup(rank, world_size, port)
     model.to(f"cuda:{rank}")
@@ -119,8 +116,7 @@ def train(rank, world_size, port, model, name, loss_function, optimizer, train_d
     train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank)
     train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=train_sampler)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
-    # Load Checkpoint if Available
-    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer)
+    
     patience_counter = 0
     # Training Loop
     scaler = torch.GradScaler()
@@ -141,6 +137,7 @@ def train(rank, world_size, port, model, name, loss_function, optimizer, train_d
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss} - Val Loss: {avg_val_loss}")
             metrics["train_loss"].append(avg_train_loss)
             metrics["val_loss"].append(avg_val_loss)
+            metrics["epoch"].append(epoch)
             # Checkpointing
             patience_counter += 1
             save_checkpoint(model, optimizer, epoch, avg_val_loss, metrics, f"{PATH_WEIGHTS}/{name}.ckpt")
@@ -176,13 +173,17 @@ def main(args):
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]
     optimizer = model_kwargs["optimizer"]
+    # Load Checkpoint if Available
+    start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer)
     # Launch training on multiple GPUs
     port = get_unused_port()
     world_size = torch.cuda.device_count()
     if world_size > 1:
-        mp.spawn(train, args=(world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, params["batch_size"], epochs, patience), nprocs=world_size)
+        mp.spawn(train, args=(world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, params["batch_size"], 
+                              start_epoch, best_val_loss, metrics, epochs, patience), nprocs=world_size)
     else:
-        train(0, world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, params["batch_size"], epochs, patience)
+        train(0, world_size, port, model, name, loss_function, optimizer, train_ds, val_ds, params["batch_size"], 
+              start_epoch, best_val_loss, metrics, epochs, patience)
     
 if __name__ == "__main__":
     # Parse command line arguments

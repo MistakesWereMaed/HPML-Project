@@ -38,32 +38,50 @@ def plot_height(zos, lat, lon):
 
 def plot_training_time(csv_path):
     df = pd.read_csv(csv_path)
+    
+    if 'gpu_count' not in df.columns or 'train_time' not in df.columns:
+        raise ValueError("CSV file must contain 'gpu_count' and 'train_time' columns.")
+    
+    gpu_counts = df['gpu_count']
+    training_times = df['train_time']
+    
     plt.figure(figsize=(8, 6))
-    plt.plot(df['gpu_count'], df['train_time'], marker='o', linestyle='-')
-    plt.xlabel('Number of GPUs')
-    plt.ylabel('Training Time (seconds)')
-    plt.title('Training Time vs. GPU Count')
-    plt.grid()
+    plt.bar(gpu_counts, training_times, color='skyblue')
+    plt.xlabel("GPU Count")
+    plt.ylabel("Training Time (seconds)")
+    plt.title("Training Time by GPU Count")
+    plt.xticks(gpu_counts)
     plt.show()
 
 def plot_loss_history(csv_path):
     df = pd.read_csv(csv_path)
-    plt.figure(figsize=(8, 6))
-    plt.plot(df['epoch'], df['train_loss'], label='Train Loss', marker='o')
-    plt.plot(df['epoch'], df['val_loss'], label='Validation Loss', marker='s')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss History')
-    plt.legend()
-    plt.grid()
+    # Create a figure with 2 subplots (1 row, 2 columns)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Plot Train Loss
+    ax1.plot(df['epoch'], df['train_loss'], label='Train Loss', marker='o')
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Loss')
+    ax1.set_title('Training Loss History')
+    ax1.grid()
+    
+    # Plot Validation Loss
+    ax2.plot(df['epoch'], df['val_loss'], label='Validation Loss', marker='s')
+    ax2.set_xlabel('Epoch')
+    ax2.set_ylabel('Loss')
+    ax2.set_title('Validation Loss History')
+    ax2.grid()
+
+    # Display the plots
+    plt.tight_layout()
     plt.show()
 
-def plot_accuracy_over_lead_time(npz_path):
+def plot_accuracy_over_time(npz_path):
     data = np.load(npz_path)
     lead_times = data['lead_times']
-    accuracies = data['accuracies']
+    loss = data['loss']
     plt.figure(figsize=(8, 6))
-    plt.plot(lead_times, accuracies, marker='o', linestyle='-')
+    plt.plot(lead_times, loss, marker='o', linestyle='-')
     plt.xlabel('Prediction Lead Time (Days)')
     plt.ylabel('Accuracy')
     plt.title('Model Accuracy over Prediction Lead Time')

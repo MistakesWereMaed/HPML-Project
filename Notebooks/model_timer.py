@@ -10,7 +10,7 @@ from model_trainer import setup, cleanup, get_unused_port, train_epoch
 from models import PICPModel
 from data_loader import load_dataset
 
-PATH_VAL = "../Data/Processed/Val.nc"
+PATH_TRAIN = "../Data/Processed/Val.nc"
 PATH_TIMINGS = "../Models/Timings"
 
 GPU_CONFIGS = [1, 2, 4]
@@ -52,7 +52,7 @@ def main(args):
             raise ValueError(f"Unknown model type")
     # Load Data
     params = model_class.load_params()
-    train_ds, image_size = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
+    train_ds, image_size = load_dataset(path=PATH_TRAIN, input_days=params["input_days"], target_days=params["target_days"])
     # Train with different GPU configurations
     results = []
     for world_size in GPU_CONFIGS:
@@ -86,7 +86,7 @@ def main(args):
     # Save results to CSV
     with open(f"{PATH_TIMINGS}/{model_type}.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["gpu_count", "train_time", "avg_val_loss"])
+        writer.writerow(["gpu_count", "train_time"])
         writer.writerows(results)
 
 if __name__ == "__main__":
