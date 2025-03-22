@@ -2,7 +2,7 @@ import xarray as xr
 import numpy as np
 import torch
 
-from torch.utils.data import Dataset, DataLoader, DistributedSampler
+from torch.utils.data import Dataset
 
 class XarrayDataset(Dataset):
     def __init__(self, ds, input_vars, target_vars, input_days=7, target_days=15):
@@ -36,15 +36,16 @@ class XarrayDataset(Dataset):
 
         return x_tensor, y_tensor
 
-def load_dataset(path, downsampling_scale=2, batch_size=2, num_workers=2, input_days=1, target_days=1, rank=0, world_size=1, **kwargs):
+def load_dataset(path, downsampling_scale=2, input_days=1, target_days=1, **kwargs):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo']
     # Load dataset
     ds = xr.open_dataset(path, chunks="auto")
     if downsampling_scale >= 1:
         ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
+    # Image size
+    lat_size = ds.sizes.get("latitude", 0)
+    lon_size = ds.sizes.get("longitude", 0)
     # Load tensors
     dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False)
-
-    return DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers, pin_memory=True)
+    return dataset, (lat_size, lon_size)

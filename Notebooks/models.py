@@ -5,11 +5,6 @@ import torch.optim as optim
 
 from linformer import LinformerSelfAttention
 from hyperopt import hp
-from data_loader import load_dataset
-
-PATH_TRAIN = "../Data/Processed/Train.nc"
-PATH_VAL = "../Data/Processed/Val.nc"
-PATH_TEST = "../Data/Processed/Test.nc"
 
 PATH_PARAMS = "../Models/Params"
 
@@ -86,13 +81,6 @@ class PhysicsInformedModule(nn.Module):
         u_g = self.g / self.f * dvdy
         v_g = -self.g / self.f * dudx
 
-        if torch.isnan(u_g).any() or torch.isinf(u_g).any():
-            print("NaN detected in u_g (geostrophic velocity)")
-
-        if torch.isnan(v_g).any() or torch.isinf(v_g).any():
-            print("NaN detected in v_g (geostrophic velocity)")
-            exit(1)
-
         return u_g, v_g
     
 class SumModule(nn.Module):
@@ -138,6 +126,7 @@ class PICPModel(nn.Module):
     def load_params():
         try:
             with open(f"{PATH_PARAMS}/PINN.json", "r") as f:
+                print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:
             params = {
@@ -154,20 +143,7 @@ class PICPModel(nn.Module):
         return params
     
     @staticmethod
-    def initialize_model(downsampling_scale=2, path_train=PATH_TRAIN, path_val=PATH_VAL, path_test=PATH_TEST, testing=False, **kwargs):
-        params = PICPModel.load_params()
-        params.update(kwargs)
-        # Load dataset
-        if testing:
-            data = (load_dataset(path_test, downsampling_scale=downsampling_scale, **params))
-        else:
-            train_loader = load_dataset(path_train, downsampling_scale=downsampling_scale, **params)
-            val_loader = load_dataset(path_val, downsampling_scale=downsampling_scale, **params)
-            data = (train_loader, val_loader)
-        # Get image size
-        features, _ = next(iter(data[0]))
-        image_size = features.shape[2:]
-
+    def initialize_model(image_size, params):
         # Calculate channel dimensions
         in_channels = NUM_FEATURES * params["input_days"]
         out_channels = NUM_FEATURES * params["target_days"]
@@ -177,12 +153,11 @@ class PICPModel(nn.Module):
         optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
         # Package returns
         model_kwargs = {
-            "name": "PICP",
+            "name": "PINN",
             "model": model,
             "loss_function": loss_function,
             "optimizer": optimizer,
             "hyperparameters": params,
-            "data": data,
         }
         return model_kwargs
     

@@ -1,7 +1,9 @@
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import matplotlib.pyplot as plt
 
 def plot_currents(u, v, lat, lon, arrow_step=100, arrow_scale=0.1):
     fig, ax = plt.subplots(figsize=(10, 10), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -32,4 +34,38 @@ def plot_height(zos, lat, lon):
     ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='dotted')
 
     plt.title('Sea Level Height')
+    plt.show()
+
+def plot_training_time(csv_path):
+    df = pd.read_csv(csv_path)
+    plt.figure(figsize=(8, 6))
+    plt.plot(df['gpu_count'], df['train_time'], marker='o', linestyle='-')
+    plt.xlabel('Number of GPUs')
+    plt.ylabel('Training Time (seconds)')
+    plt.title('Training Time vs. GPU Count')
+    plt.grid()
+    plt.show()
+
+def plot_loss_history(csv_path):
+    df = pd.read_csv(csv_path)
+    plt.figure(figsize=(8, 6))
+    plt.plot(df['epoch'], df['train_loss'], label='Train Loss', marker='o')
+    plt.plot(df['epoch'], df['val_loss'], label='Validation Loss', marker='s')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss History')
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+def plot_accuracy_over_lead_time(npz_path):
+    data = np.load(npz_path)
+    lead_times = data['lead_times']
+    accuracies = data['accuracies']
+    plt.figure(figsize=(8, 6))
+    plt.plot(lead_times, accuracies, marker='o', linestyle='-')
+    plt.xlabel('Prediction Lead Time (Days)')
+    plt.ylabel('Accuracy')
+    plt.title('Model Accuracy over Prediction Lead Time')
+    plt.grid()
     plt.show()

@@ -4,37 +4,40 @@ import argparse
 import torch
 import torch.multiprocessing as mp
 
-from model_trainer import train_experiment, setup, cleanup
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader, DistributedSampler
+from model_trainer import setup, cleanup, get_unused_port, train_epoch
 from models import PICPModel
+from data_loader import load_dataset
 
 PATH_VAL = "../Data/Processed/Val.nc"
-PATH_TEST = "../Data/Processed/Test.nc"
 PATH_TIMINGS = "../Models/Timings"
 
 GPU_CONFIGS = [1, 2, 4]
 
-def train_timing(rank, world_size, model_type, epochs, return_dict):
-    # Initialize model
-    model_kwargs = model_type.initialize_model(path_train=PATH_VAL, path_val=PATH_TEST)
-    model = model_kwargs["model"]
-    optimizer = model_kwargs["optimizer"]
-    loss_function = model_kwargs["loss_function"]
-    train_ds = model_kwargs["data"][0]
-    val_ds = model_kwargs["data"][1]
-    # Set up GPU
-    setup(rank, world_size)
-    device = f"cuda:{rank}"
-    model.to(device)
-    # Time tracking
+def train_timing(rank, world_size, port, model, loss_function, optimizer, train_ds, batch_size, epochs, train_times):
+    # Initialize DDP
+    setup(rank, world_size, port)
+    model.to(f"cuda:{rank}")
+    model = DDP(model, device_ids=[rank])
+    # Initialize DataLoader
+    train_sampler = DistributedSampler(train_ds, num_replicas=world_size, rank=rank)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=train_sampler)
+    scaler = torch.GradScaler()
     start_time = time.perf_counter()
-    final_loss = train_experiment(rank, model, train_ds, val_ds, optimizer, loss_function, epochs)
+    # Training loop
+    for epoch in range(epochs):
+        model.train()
+        train_sampler.set_epoch(epoch)
+        train_epoch(rank, model, train_loader, loss_function, optimizer, scaler)
+
     end_time = time.perf_counter()
-    train_time = end_time - start_time
     # Save results
-    if rank == 0:
-        return_dict["time"] = train_time
-        return_dict["loss"] = final_loss
-    print(f"GPU {rank}: Training completed in {train_time:.2f} seconds with final validation loss {final_loss:.4f}")
+    train_time = end_time - start_time
+    train_times[rank] = train_time / epochs
+    # Cleanup
+    del model, loss_function, optimizer
+    torch.cuda.empty_cache()
     cleanup()
 
 def main(args):
@@ -47,6 +50,9 @@ def main(args):
             model_class = PICPModel
         case _:
             raise ValueError(f"Unknown model type")
+    # Load Data
+    params = model_class.load_params()
+    train_ds, image_size = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
     # Train with different GPU configurations
     results = []
     for world_size in GPU_CONFIGS:
@@ -56,32 +62,39 @@ def main(args):
         print(f"\nTraining with {world_size} GPU(s)...")
         # Average multiple trials
         total_time = 0
-        total_loss = 0
         for trial in range(trials):
-            return_dict = {"time": None, "loss": None}
-            # Launch training on multiple GPUs
-            if world_size > 1:
-                mp.spawn(train_timing, args=(world_size, model_class, epochs, return_dict), nprocs=world_size, join=True)
-            else:
-                train_timing(0, world_size, model_class, epochs, return_dict)
-            # Aggregate results
-            total_time += return_dict["time"]
-            total_loss += return_dict["loss"]
-        # Compute average
-        avg_time = total_time / trials
-        avg_loss = total_loss / trials
-        results.append([world_size, avg_time, avg_loss])
+            # Initialize model
+            model_kwargs = model_class.initialize_model(image_size, params)
+            model = model_kwargs["model"]
+            loss_function = model_kwargs["loss_function"]
+            optimizer = model_kwargs["optimizer"]
+            # Shared dictionary for results
+            with mp.Manager() as manager:
+                train_times = manager.dict()
+                # Launch training on multiple GPUs
+                port = get_unused_port()
+                if world_size > 1:
+                    mp.spawn(train_timing, args=(world_size, port, model, loss_function, optimizer, train_ds, params["batch_size"], epochs, train_times), nprocs=world_size, join=True)
+                else:
+                    train_timing(0, world_size, port, model, loss_function, optimizer, train_ds, params["batch_size"], epochs, train_times)
+                # Aggregate training times from the shared dictionary
+                total_time += sum(train_times.values())
+        # Compute average time for this GPU configuration
+        avg_time = total_time / trials / world_size
+        results.append([world_size, avg_time])
+        print(f"Average time per epoch for {world_size} GPU(s): {avg_time:.2f} seconds")
     # Save results to CSV
     with open(f"{PATH_TIMINGS}/{model_type}.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["GPUs", "Avg Training Time (s)", "Avg Validation Loss"])
+        writer.writerow(["gpu_count", "train_time", "avg_val_loss"])
         writer.writerows(results)
 
 if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
-    parser.add_argument("--trials", type=int, default=5, help="Number of trials")
+    parser.add_argument("--trials", type=int, default=3, help="Number of trials")
+    parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
     args = parser.parse_args()
 
     main(vars(args))
