@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from models import PICPModel
 from data_loader import load_dataset
 
-PATH_TRAIN = "../Data/Processed/Test.nc"
+PATH_TRAIN = "../Data/Processed/Train.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 
 PATH_WEIGHTS = "../Models/Weights"
@@ -38,18 +38,27 @@ def load_checkpoint(path, model, optimizer):
         checkpoint = torch.load(path, map_location="cuda")
         model.load_state_dict(checkpoint["model_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
+        print("Loading checkpoint")
         return checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["metrics"]
     except FileNotFoundError:
-        return 0, float("inf"), {"train_loss": [], "val_loss": [], "epoch_time": []}
+        return 0, float("inf"), {"train_loss": [], "val_loss": []}
 
 def save_checkpoint(model, optimizer, epoch, val_loss, metrics, path):
-    torch.save({
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        state_dict = model.module.state_dict()
+    else:
+        state_dict = model.state_dict()
+
+    checkpoint = {
         "epoch": epoch,
-        "model_state": model.state_dict(),
+        "model_state": state_dict,
         "optimizer_state": optimizer.state_dict(),
         "best_val_loss": val_loss,
         "metrics": metrics
-    }, path)
+    }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(checkpoint, path)
+    print(f"Checkpoint saved at {path}")
 
 def train_epoch(rank, model, train_loader, loss_function, optimizer, scaler, use_progressbar=True):
     total_loss = 0.0

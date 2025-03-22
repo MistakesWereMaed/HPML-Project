@@ -3,14 +3,17 @@ import numpy as np
 import torch
 
 from tqdm import tqdm
+from torch.utils.data import DataLoader
 from models import PICPModel
 from model_trainer import load_checkpoint
+from data_loader import load_dataset
 
+PATH_TEST = "../Data/Processed/Test.nc"
 PATH_WEIGHTS = "../Models/Weights"
 PATH_RESULTS = "../Models/Results"
 
-# Testing Function
-def test(model, test_loader, loss_function, device="cuda"):
+def test(model, loss_function, test_ds, batch_size, device="cuda"):
+    test_loader = DataLoader(test_ds, batch_size=batch_size)
     model.to(device)
     model.eval()
     # Initialize return variables
@@ -44,16 +47,18 @@ def main(args):
         #case "FNO":
         case _:
             raise ValueError(f"Unknown model type")
+    # Load Data
+    params = model_class.load_params()
+    test_ds, image_size = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
     # Initialize model
-    model_kwargs = model_class.initialize_model(testing=True)
+    model_kwargs = model_class.initialize_model(image_size, params)
     name = model_kwargs["name"]
     model = model_kwargs["model"]
     optimizer = model_kwargs["optimizer"]
     loss_function = model_kwargs["loss_function"]
-    test_ds = model_kwargs["data"][0]
     # Load weights and test
     load_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer)
-    loss, predictions, targets = test(model, test_ds, loss_function)
+    loss, predictions, targets = test(model, loss_function, test_ds, params["batch_size"])
     # Save results
     results_path = f"{PATH_RESULTS}/{model_type}.npz"
     np.savez_compressed(
