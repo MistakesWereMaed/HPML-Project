@@ -14,18 +14,6 @@ PATH_VAL = "../Data/Processed/Val.nc"
 PATH_TEST = "../Data/Processed/Test.nc"
 PATH_PARAMS = "../Models/Params"
 
-def convert_value(v):
-    # If v is a tensor, check if it's scalar or not
-    if isinstance(v, torch.Tensor):
-        if v.ndimension() == 0:  # Scalar tensor
-            return v.item()
-        else:  # Non-scalar tensor
-            return v.tolist()
-    # If it's a numpy.int64, convert it to a native Python int
-    elif isinstance(v, np.int64):
-        return int(v)
-    return v  # Return as-is for other types
-
 def train_wrapper(rank, world_size, port, model_class, params, epochs, return_dict):
     train_ds, image_size = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
     val_ds, _ = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
