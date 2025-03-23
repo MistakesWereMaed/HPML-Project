@@ -14,6 +14,18 @@ PATH_VAL = "../Data/Processed/Val.nc"
 PATH_TEST = "../Data/Processed/Test.nc"
 PATH_PARAMS = "../Models/Params"
 
+def convert_value(v):
+    # If v is a tensor, check if it's scalar or not
+    if isinstance(v, torch.Tensor):
+        if v.ndimension() == 0:  # Scalar tensor
+            return v.item()
+        else:  # Non-scalar tensor
+            return v.tolist()
+    # If it's a numpy.int64, convert it to a native Python int
+    elif isinstance(v, np.int64):
+        return int(v)
+    return v  # Return as-is for other types
+
 def train_wrapper(rank, world_size, port, model_class, params, epochs, return_dict):
     train_ds, image_size = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
     val_ds, _ = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
@@ -44,7 +56,7 @@ def objective(params, model_class, epochs):
             train_wrapper(0, world_size, port, model_class, params, epochs, return_dict)
         val_loss = return_dict["loss"]
 
-    return {'loss': val_loss, 'status': 'ok'}
+    return {'loss': val_loss, 'status': 'ok', 'params': params}
 
 def main(args):
     # Select model
@@ -64,10 +76,10 @@ def main(args):
         trials = Trials()
         best = fmin(fn=objective_with_args, space=space, algo=tpe.suggest, max_evals=args["trials"], trials=trials)
         best_loss = trials.best_trial['result']['loss']
-        best_params = best
+        best_params = trials.best_trial['result']['params']
         # Save best hyperparameters
         with open(f"{PATH_PARAMS}/{model_type}.json", "w") as f:
-            json.dump({k: v.item() for k, v in best_params.items()}, f)
+            json.dump({k: v for k, v in best_params.items()}, f)
         print(f"Best hyperparameters saved with loss {best_loss:.4f}")
     # Handle exceptions
     except Exception as e:
