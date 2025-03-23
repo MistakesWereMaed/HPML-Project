@@ -1,11 +1,11 @@
 {
-    "batch_size": 1,
-    "embed_dim": 384.0,
-    "input_days": 1,
+    "batch_size": 2,
+    "embed_dim": 128.0,
+    "input_days": 7,
     "kernel_size": [3, 3],
-    "learning_rate": 0.0018219266077564899,
-    "linformer_k": 512.0,
-    "mlp_hidden_dim": 384.0,
+    "learning_rate": 0.007976392045344649,
+    "linformer_k": 128.0,
+    "mlp_hidden_dim": 128.0,
     "num_heads": 1,
     "target_days": 15
-}
+  }
