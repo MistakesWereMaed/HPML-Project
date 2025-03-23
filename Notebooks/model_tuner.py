@@ -1,21 +1,20 @@
 import json
-import torch
+import argparse
 import numpy as np
 import torch
-import argparse
+import torch.multiprocessing as mp
 
 from hyperopt import fmin, tpe, Trials
 from functools import partial
 from models import PICPModel
-from model_trainer import train_experiment
+from model_trainer import train_experiment, get_unused_port
 from data_loader import load_dataset
 
 PATH_VAL = "../Data/Processed/Val.nc"
 PATH_TEST = "../Data/Processed/Test.nc"
 PATH_PARAMS = "../Models/Params"
 
-def objective(params, model_class, epochs):
-    print(params)
+def train_wrapper(rank, world_size, port, model_class, params, epochs, return_dict):
     train_ds, image_size = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
     val_ds, _ = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
     # Initialize model
@@ -24,8 +23,27 @@ def objective(params, model_class, epochs):
     loss_function = model_kwargs["loss_function"]
     optimizer = model_kwargs["optimizer"]
     # Train and get validation loss
-    model.to("cuda")
-    val_loss = train_experiment(0, model, loss_function, optimizer, train_ds, val_ds, batch_size=params["batch_size"], epochs=epochs)
+    val_loss, _ = train_experiment(rank, world_size, port, model, loss_function, optimizer, train_ds, val_ds, batch_size=params["batch_size"], epochs=epochs)
+    if rank == 0:
+        return_dict["loss"] = val_loss
+    # Cleanup
+    del model, loss_function, optimizer
+    torch.cuda.empty_cache()
+
+def objective(params, model_class, epochs):
+    print(params)
+    port = get_unused_port()
+    world_size = torch.cuda.device_count()
+
+    with mp.Manager() as manager:
+        return_dict = manager.dict()
+        # Launch training across multiple GPUs
+        if world_size > 1:
+            mp.spawn(train_wrapper, args=(world_size, port, model_class, params, epochs, return_dict), nprocs=world_size, join=True)
+        else:
+            train_wrapper(0, world_size, port, model_class, params, epochs, return_dict)
+        val_loss = return_dict["loss"]
+
     return {'loss': val_loss, 'status': 'ok'}
 
 def main(args):
@@ -48,11 +66,8 @@ def main(args):
         best_loss = trials.best_trial['result']['loss']
         best_params = best
         # Save best hyperparameters
-        with open(f"{PATH_PARAMS}/test-{model_type}.json", "w") as f:
-            json.dump({
-                'loss': float(best_loss),
-                'params': {k: int(v) if isinstance(v, (np.integer, torch.Tensor)) else v for k, v in best_params.items()}
-            }, f)
+        with open(f"{PATH_PARAMS}/{model_type}.json", "w") as f:
+            json.dump({k: v.item() for k, v in best_params.items()}, f)
         print(f"Best hyperparameters saved with loss {best_loss:.4f}")
     # Handle exceptions
     except Exception as e:

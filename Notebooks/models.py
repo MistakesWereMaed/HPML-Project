@@ -20,27 +20,18 @@ def calculate_seq_length(image_size, kernel_size, padding=0, stride=1):
     # Compute sequence length
     return height_out * width_out
 
-class DataDrivenModule(nn.Module):
-    def __init__(self, image_size, in_channels=3, kernel_size=(5, 10), num_heads=4, embed_dim=768, linformer_k=256, dropout_p=0.1, mlp_hidden_dim=768, out_channels=3, **kwargs):
-        super(DataDrivenModule, self).__init__()
-
+class PICPModel(nn.Module):
+    def __init__(self, image_size, in_channels=3, kernel_size=(5, 10), num_heads=4, embed_dim=768, 
+                 linformer_k=256, dropout_p=0.1, mlp_hidden_dim=768, out_channels=3, g=9.81, f=1e-4, **kwargs):
+        super(PICPModel, self).__init__()
         embed_dim = int(embed_dim)
         linformer_k = int(linformer_k)
         mlp_hidden_dim = int(mlp_hidden_dim)
-
-        self.conv = nn.Conv2d(
-            in_channels=in_channels, 
-            out_channels=embed_dim, 
-            kernel_size=kernel_size
-        )
-        self.attn = LinformerSelfAttention(
-            dim=embed_dim,        
-            seq_len=calculate_seq_length(image_size, kernel_size),
-            k=linformer_k,
-            heads=num_heads
-        )
-        self.dropout = nn.Dropout(p=dropout_p)
+        # Data-Driven Components
+        self.conv = nn.Conv2d(in_channels, embed_dim, kernel_size=kernel_size)
+        self.attn = LinformerSelfAttention(dim=embed_dim, seq_len=calculate_seq_length(image_size, kernel_size), k=linformer_k, heads=num_heads)
         self.norm = nn.LayerNorm(embed_dim, eps=1e-6)
+        self.dropout = nn.Dropout(p=dropout_p)
         self.mlp = nn.Sequential(
             nn.Linear(embed_dim, mlp_hidden_dim),
             nn.LeakyReLU(negative_slope=0.01),
@@ -49,62 +40,37 @@ class DataDrivenModule(nn.Module):
             nn.Linear(mlp_hidden_dim, mlp_hidden_dim),
             nn.LeakyReLU(negative_slope=0.01)
         )
-        self.transconv = nn.ConvTranspose2d(in_channels=mlp_hidden_dim, out_channels=out_channels, kernel_size=kernel_size)
+        self.transconv = nn.ConvTranspose2d(mlp_hidden_dim, out_channels, kernel_size=kernel_size)
+        # Physics-Informed Components
+        self.g = g
+        self.f = f
+        # Ensure model is on CUDA if available
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)
 
     def forward(self, x):
+        # Step 1: Data-Driven Computation
         x = self.conv(x)
         batch_size, channels, height, width = x.shape
         seq_len = height * width
         x = x.view(batch_size, channels, seq_len).transpose(1, 2)
-        self.attn.seq_len = seq_len
         x = self.attn(x, context=x)
         x = self.norm(x)
         x = self.dropout(x)
         x = self.mlp(x)
         x = x.permute(0, 2, 1).view(batch_size, -1, height, width)
         x = self.transconv(x)
-        
-        return x  # Returns u', v', SSH
-    
-class PhysicsInformedModule(nn.Module):
-    def __init__(self, g=9.81, f=1e-4):
-        super(PhysicsInformedModule, self).__init__()
-        self.g = g
-        self.f = f
-
-    def forward(self, ssh):
-        # Compute gradients ∂SSH/∂x and ∂SSH/∂y using finite differences
+        # Extract u', v', SSH from Data-Driven output
+        u_prime, v_prime, ssh = torch.chunk(x, chunks=3, dim=1)
+        # Step 2: Physics-Informed Computation (∇SSH → geostrophic velocity)
         dudx = torch.diff(ssh, dim=-1, append=ssh[:, :, :, -1:])
         dvdy = torch.diff(ssh, dim=-2, append=ssh[:, :, -1:, :])
-        
-        # Compute geostrophic velocity components
         u_g = self.g / self.f * dvdy
         v_g = -self.g / self.f * dudx
-
-        return u_g, v_g
-    
-class SumModule(nn.Module):
-    def forward(self, u_g, v_g, u_prime, v_prime):
+        # Step 3: Sum Module (Combining Data-Driven and Physics-Informed velocities)
         with torch.autocast("cuda"):
             u = u_g + u_prime
             v = v_g + v_prime
-            return u, v
-        
-class PICPModel(nn.Module):
-    def __init__(self, **kwargs):
-        super(PICPModel, self).__init__()
-        self.data_module = DataDrivenModule(**kwargs)
-        self.physics_module = PhysicsInformedModule()
-        self.sum_module = SumModule()
-
-    def forward(self, x):
-        # Step 1: Data-driven module
-        output = self.data_module(x)
-        u_prime, v_prime, ssh = torch.chunk(output, chunks=3, dim=1)
-        # Step 2: Physics-informed module
-        u_g, v_g = self.physics_module(ssh)
-        # Step 3: Sum module
-        u, v = self.sum_module(u_g, v_g, u_prime, v_prime)
 
         return torch.stack((u, v), dim=1)
 
@@ -113,13 +79,13 @@ class PICPModel(nn.Module):
         return {
             "input_days": hp.choice("input_days", [1, 3, 7]),
             "target_days": hp.choice("target_days", [1, 7, 15]),
-            "batch_size": hp.choice("batch_size", [1, 2]),
+            "batch_size": hp.choice("batch_size", [1, 2, 4, 8]),
             "kernel_size": hp.choice("kernel_size", [(3, 3), (5, 10), (7, 7)]),
-            "linformer_k": hp.quniform("linformer_k", 128, 512, 128),
+            "linformer_k": hp.quniform("linformer_k", 128, 528, 128),
             "num_heads": hp.choice("num_heads", [1, 2, 4]),
-            "embed_dim": hp.quniform("embed_dim", 128, 512, 128),
-            "mlp_hidden_dim": hp.quniform("mlp_hidden_dim", 128, 512, 128),
-            "learning_rate": hp.loguniform("learning_rate", -7, -4),
+            "embed_dim": hp.quniform("embed_dim", 128, 528, 128),
+            "mlp_hidden_dim": hp.quniform("mlp_hidden_dim", 128, 528, 128),
+            "learning_rate": hp.loguniform("learning_rate", -6, -2),
         }
     
     @staticmethod
@@ -131,7 +97,7 @@ class PICPModel(nn.Module):
         except FileNotFoundError:
             params = {
                 "input_days": 7,
-                "target_days": 3,
+                "target_days": 15,
                 "batch_size": 2,
                 "kernel_size": (5, 10),
                 "linformer_k": 256,
