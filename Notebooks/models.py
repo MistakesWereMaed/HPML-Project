@@ -21,10 +21,11 @@ def load_and_initialize(rank=0, world_size=1, model_type="PINN", path1=None, pat
     params = model_class.load_params()
     return_dict = {
         "loaders": [],
+        "samplers": [],
         "model_kwargs": None
     }
 
-    train_loader, image_size = get_dataloader(
+    train_loader, train_sampler, image_size = get_dataloader(
         rank=rank, world_size=world_size,
         path=path1, downsampling_scale=downsampling_scale, 
         input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
@@ -32,16 +33,18 @@ def load_and_initialize(rank=0, world_size=1, model_type="PINN", path1=None, pat
     model_kwargs = model_class.initialize_model(image_size, params)
 
     return_dict["loaders"].append(train_loader)
+    return_dict["samplers"].append(train_sampler)
     return_dict["model_kwargs"] = model_kwargs
 
     if path2:
-        val_loader = get_dataloader(
+        val_loader, val_sampler, _ = get_dataloader(
             rank=rank, world_size=world_size,
             path=path2, downsampling_scale=downsampling_scale, 
             input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
         )
 
         return_dict["loaders"].append(val_loader)
+        return_dict["samplers"].append(val_sampler)
 
     return return_dict
 

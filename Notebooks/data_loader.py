@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 
 class XarrayDataset(Dataset):
     def __init__(self, ds, input_vars, target_vars, input_days=7, target_days=15):
@@ -64,6 +64,7 @@ def get_dataloader(rank=0, world_size=1, path=None, downsampling_scale=2, input_
     lon_size = ds_chunk.sizes.get("longitude", 0)
     # Create dataset and DataLoader
     dataset = XarrayDataset(ds_chunk, input_vars, target_vars, input_days, target_days)
-    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=2, pin_memory=True)
+    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False, drop_last=True)
+    dataloader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=2, pin_memory=True)
 
-    return dataloader, (lat_size, lon_size)
+    return dataloader, sampler, (lat_size, lon_size)

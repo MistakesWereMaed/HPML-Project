@@ -34,7 +34,7 @@ def plot_height(zos, lat, lon):
     ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='dotted')
 
     plt.title('Sea Level Height')
-    plt.show()
+    plt.show() 
 
 def plot_training_time(csv_path):
     df = pd.read_csv(csv_path)

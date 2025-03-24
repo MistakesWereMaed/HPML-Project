@@ -46,7 +46,7 @@ def save_checkpoint(path, model, optimizer, epoch, metrics, best_val_loss):
     torch.save(checkpoint, path)
     print(f"Checkpoint saved at {path}")
 
-def validate(rank, val_loader, model, loss_function, **kwargs):
+def validate(rank, val_loader, model, loss_function):
     model.to(rank)
     model.eval()
     total_loss = 0.0
@@ -58,11 +58,12 @@ def validate(rank, val_loader, model, loss_function, **kwargs):
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
-def train_epoch(rank, train_loader, show_progress_bar, model, loss_function, optimizer, **kwargs):
+def train_epoch(rank, train_loader, show_progress_bar, model, loss_function, optimizer):
     model.to(rank)
     model.train()
 
     total_loss = 0.0
+    show_progress_bar = show_progress_bar and rank == 0
     progress_bar = tqdm(train_loader, desc="Training", leave=True) if show_progress_bar else train_loader
 
     start_time = time.perf_counter()
@@ -96,9 +97,10 @@ def train(rank, world_size,
     )
 
     model_kwargs = model_dict["model_kwargs"]
-    name = model_kwargs["name"]
-    optimizer = model_kwargs["optimizer"]
     model = DDP(model_kwargs["model"], device_ids=[rank])
+    loss_function = model_kwargs["loss_function"]
+    optimizer = model_kwargs["optimizer"]
+    name = model_kwargs["name"]
     
     train_loader = model_dict["loaders"][0]
     val_loader = model_dict["loaders"][1]
@@ -107,20 +109,28 @@ def train(rank, world_size,
         start_epoch, best_val_loss, metrics = (0, float("inf"), {"train_loss": [], "val_loss": [], "epoch": []})
     else:
         start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}-Current.ckpt", model, optimizer)
+
+    dist.barrier()
+    if rank == 0: print("All GPUs ready, starting training...")
     
     average_time = 0.0
     average_val_loss = 0.0
     for epoch in range(start_epoch, epochs):
-        train_loss, time = train_epoch(rank, train_loader, model, show_progress_bar, **model_kwargs)
-        val_loss = validate(rank, val_loader, model, **model_kwargs)
-
-        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss} - Val Loss: {val_loss}")
+        train_loader.sampler.set_epoch(epoch)
+        val_loader.sampler.set_epoch(epoch)
+        train_loss, time = train_epoch(
+            rank=rank, train_loader=train_loader, show_progress_bar=show_progress_bar, 
+            model=model, optimizer=optimizer, loss_function=loss_function
+        )
+        if rank == 0: print("Validating...")
+        val_loss = validate(rank=rank, val_loader=val_loader, model=model, loss_function=loss_function)
+        if rank == 0: print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss} - Val Loss: {val_loss}")
 
         if experiment:
             average_time += time
             average_val_loss += val_loss
 
-        else:
+        elif rank == 0:
             metrics["train_loss"].append(train_loss)
             metrics["val_loss"].append(val_loss)
             metrics["epoch"].append(epoch)
@@ -152,6 +162,7 @@ def main():
     downsampling_scale = args.downsampling
 
     world_size = torch.cuda.device_count()
+    print(f"Starting training on {world_size} GPUs...")
     mp.spawn(train, args=(
         world_size, model_type, epochs, PATH_TRAIN, PATH_VAL, downsampling_scale, False, True
     ), nprocs=world_size, join=True)
