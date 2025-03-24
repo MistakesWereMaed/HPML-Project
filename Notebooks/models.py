@@ -72,7 +72,7 @@ class PICPModel(nn.Module):
             u = u_g + u_prime
             v = v_g + v_prime
 
-        return torch.stack((u, v), dim=1)
+        return torch.stack((u, v, ssh), dim=1)
 
     @staticmethod
     def get_hyperparam_space():
@@ -89,9 +89,9 @@ class PICPModel(nn.Module):
         }
     
     @staticmethod
-    def load_params():
+    def load_params(dist_type="Base"):
         try:
-            with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
+            with open(f"{PATH_PARAMS}/PINN-{dist_type}.json", "r") as f:
                 print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:

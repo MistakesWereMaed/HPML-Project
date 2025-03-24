@@ -38,7 +38,7 @@ class XarrayDataset(Dataset):
 
 def load_dataset(path, downsampling_scale=2, input_days=1, target_days=1, **kwargs):
     input_vars = ['zos', 'u10', 'v10']
-    target_vars = ['uo', 'vo']
+    target_vars = ['uo', 'vo', 'zos']
     # Load dataset
     ds = xr.open_dataset(path, chunks="auto")
     if downsampling_scale >= 1:

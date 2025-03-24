@@ -16,30 +16,41 @@ def test(model, name, loss_function, optimizer, test_ds, batch_size):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     load_checkpoint(f"{PATH_WEIGHTS}/{name}-Base.ckpt", model, optimizer)
-    
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
     
-    all_loss = []
+    # Initialize lists to store daily losses
+    daily_losses = np.zeros(test_ds.target_days)  # Assuming target_days = 7
     all_predictions = []
     all_targets = []
     
+    i = 0
     progress_bar = tqdm(test_loader, desc="Testing", leave=True)
     with torch.no_grad():
         for inputs, targets in progress_bar:
             inputs, targets = inputs.to(device), targets.to(device)
             predictions = model(inputs)
-            loss = loss_function(predictions, targets)
-
-            all_loss.append(loss.item())
+            i += 1
+            # Loop through each day in the prediction horizon (7 days)
+            for day in range(test_ds.target_days):
+                # Calculate the loss for each individual day
+                day_loss = loss_function(predictions[:, :, day], targets[:, :, day])
+                daily_losses[day] += day_loss.item()
+            
             all_predictions.append(predictions.cpu())
             all_targets.append(targets.cpu())
+            
+            progress_bar.set_postfix(loss=np.mean(daily_losses / i))
 
-            progress_bar.set_postfix(loss=loss.item())
-    
+    # Calculate the average loss per day across all batches
+    daily_losses.sort()
+    daily_losses /= len(test_loader)  # Normalize by the number of batches
     all_predictions = torch.cat(all_predictions, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
+
+    print(f"Average loss by day of lead time: {daily_losses}")
     
-    return all_loss, all_predictions, all_targets
+    return daily_losses, all_predictions, all_targets
+
 
 def main(args):
     model_type = args["model"]
