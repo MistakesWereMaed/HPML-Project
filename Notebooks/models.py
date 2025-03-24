@@ -79,7 +79,7 @@ class PICPModel(nn.Module):
         return {
             "input_days": hp.choice("input_days", [1, 3, 7]),
             "target_days": hp.choice("target_days", [1, 7, 15]),
-            "batch_size": hp.choice("batch_size", [1, 2, 4, 8]),
+            "batch_size": hp.choice("batch_size", [1]),
             "kernel_size": hp.choice("kernel_size", [(3, 3), (5, 10), (7, 7)]),
             "linformer_k": hp.quniform("linformer_k", 128, 528, 128),
             "num_heads": hp.choice("num_heads", [1, 2, 4]),
@@ -91,7 +91,7 @@ class PICPModel(nn.Module):
     @staticmethod
     def load_params():
         try:
-            with open(f"{PATH_PARAMS}/PINN.json", "r") as f:
+            with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
                 print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:

@@ -59,14 +59,14 @@ def plot_loss_history(csv_path):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
     # Plot Train Loss
-    ax1.plot(df['epoch'], df['train_loss'], label='Train Loss', marker='o')
+    ax1.plot(df['epoch'] + 1, df['train_loss'], label='Train Loss', marker='o')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
     ax1.set_title('Training Loss History')
     ax1.grid()
     
     # Plot Validation Loss
-    ax2.plot(df['epoch'], df['val_loss'], label='Validation Loss', marker='s')
+    ax2.plot(df['epoch'] + 1, df['val_loss'], label='Validation Loss', marker='s')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Loss')
     ax2.set_title('Validation Loss History')
@@ -77,13 +77,20 @@ def plot_loss_history(csv_path):
     plt.show()
 
 def plot_accuracy_over_time(npz_path):
+    # Load NPZ file
     data = np.load(npz_path)
-    lead_times = data['lead_times']
-    loss = data['loss']
-    plt.figure(figsize=(8, 6))
-    plt.plot(lead_times, loss, marker='o', linestyle='-')
-    plt.xlabel('Prediction Lead Time (Days)')
-    plt.ylabel('Accuracy')
-    plt.title('Model Accuracy over Prediction Lead Time')
-    plt.grid()
+    
+    # Extract loss
+    loss = data["loss"]
+    
+    # Generate x-axis as days (assuming each entry corresponds to a day)
+    days = np.arange(1, len(loss) + 1)
+    
+    # Plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(days, loss, marker='o', linestyle='-')
+    plt.xlabel("Prediction Lead Time (Days)")
+    plt.ylabel("Loss")
+    plt.title("Model Loss Over Prediction Lead Time")
+    plt.grid(True)
     plt.show()
