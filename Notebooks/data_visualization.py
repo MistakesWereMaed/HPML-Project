@@ -36,21 +36,34 @@ def plot_height(zos, lat, lon):
     plt.title('Sea Level Height')
     plt.show()
 
-def plot_training_time(csv_path):
+def plot_loss_and_training_time(csv_path):
     df = pd.read_csv(csv_path)
-    
-    if 'gpu_count' not in df.columns or 'train_time' not in df.columns:
-        raise ValueError("CSV file must contain 'gpu_count' and 'train_time' columns.")
-    
+
+    if not {'gpu_count', 'train_time', 'avg_val_loss'}.issubset(df.columns):
+        raise ValueError("CSV file must contain 'gpu_count', 'train_time', and 'avg_val_loss' columns.")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+    # Plot Training Time by GPU Count
     gpu_counts = df['gpu_count']
     training_times = df['train_time']
+
+    ax1.bar(gpu_counts, training_times, color='skyblue')
+    ax1.set_xlabel("GPU Count")
+    ax1.set_ylabel("Training Time (seconds)")
+    ax1.set_title("Training Time by GPU Count")
+    ax1.set_xticks(gpu_counts)
+
+    # Plot Validation Loss by GPU Count
+    val_losses = df['avg_val_loss']
     
-    plt.figure(figsize=(8, 6))
-    plt.bar(gpu_counts, training_times, color='skyblue')
-    plt.xlabel("GPU Count")
-    plt.ylabel("Training Time (seconds)")
-    plt.title("Training Time by GPU Count")
-    plt.xticks(gpu_counts)
+    ax2.bar(gpu_counts, val_losses, color='orange')
+    ax2.set_xlabel("GPU Count")
+    ax2.set_ylabel("Validation Loss")
+    ax2.set_title("Validation Loss by GPU Count")
+    ax2.set_xticks(gpu_counts)
+
+    plt.tight_layout()
     plt.show()
 
 def plot_loss_history(csv_path):
