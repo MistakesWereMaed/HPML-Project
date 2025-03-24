@@ -5,10 +5,45 @@ import torch.optim as optim
 
 from linformer import LinformerSelfAttention
 from hyperopt import hp
+from data_loader import get_dataloader
 
 PATH_PARAMS = "../Models/Params"
 
 NUM_FEATURES = 3
+
+def load_and_initialize(rank=0, world_size=1, model_type="PINN", path1=None, path2=None, downsampling_scale=2):
+    match model_type:
+        case "PINN":
+            model_class = PICPModel
+        case _:
+            raise ValueError(f"Unknown model type")
+    
+    params = model_class.load_params()
+    return_dict = {
+        "loaders": [],
+        "model_kwargs": None
+    }
+
+    train_loader, image_size = get_dataloader(
+        rank=rank, world_size=world_size,
+        path=path1, downsampling_scale=downsampling_scale, 
+        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+    )
+    model_kwargs = model_class.initialize_model(image_size, params)
+
+    return_dict["loaders"].append(train_loader)
+    return_dict["model_kwargs"] = model_kwargs
+
+    if path2:
+        val_loader = get_dataloader(
+            rank=rank, world_size=world_size,
+            path=path2, downsampling_scale=downsampling_scale, 
+            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+        )
+
+        return_dict["loaders"].append(val_loader)
+
+    return return_dict
 
 ###### PINN ######
 def calculate_seq_length(image_size, kernel_size, padding=0, stride=1):

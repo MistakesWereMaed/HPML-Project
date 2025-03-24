@@ -1,8 +1,9 @@
 import xarray as xr
 import numpy as np
 import torch
+import torch.distributed as dist
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 class XarrayDataset(Dataset):
     def __init__(self, ds, input_vars, target_vars, input_days=7, target_days=15):
@@ -35,17 +36,34 @@ class XarrayDataset(Dataset):
         y_tensor = torch.tensor(y, dtype=torch.float32)
 
         return x_tensor, y_tensor
+    
+def split_by_longitude(ds, num_gpus, rank):
+    min_lon, max_lon = ds.longitude.min().item(), ds.longitude.max().item()
+    step = (max_lon - min_lon) / num_gpus
 
-def load_dataset(path, downsampling_scale=2, input_days=1, target_days=1, **kwargs):
+    lon_min = min_lon + rank * step
+    lon_max = min_lon + (rank + 1) * step
+
+    # Filter dataset by longitude range
+    ds_chunk = ds.sel(longitude=slice(lon_min, lon_max))
+
+    return ds_chunk
+
+
+def get_dataloader(rank=0, world_size=1, path=None, downsampling_scale=2, input_days=7, target_days=15, batch_size=1):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
     # Load dataset
     ds = xr.open_dataset(path, chunks="auto")
     if downsampling_scale >= 1:
         ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
+    # Split dataset by longitude for spatial parallelism
+    ds_chunk = split_by_longitude(ds, world_size, rank)
     # Image size
-    lat_size = ds.sizes.get("latitude", 0)
-    lon_size = ds.sizes.get("longitude", 0)
-    # Load tensors
-    dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    return dataset, (lat_size, lon_size)
+    lat_size = ds_chunk.sizes.get("latitude", 0)
+    lon_size = ds_chunk.sizes.get("longitude", 0)
+    # Create dataset and DataLoader
+    dataset = XarrayDataset(ds_chunk, input_vars, target_vars, input_days, target_days)
+    dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=2, pin_memory=True)
+
+    return dataloader, (lat_size, lon_size)

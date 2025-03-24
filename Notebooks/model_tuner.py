@@ -1,6 +1,6 @@
+import os
 import json
 import pickle
-import os
 import argparse
 import torch
 
