@@ -3,12 +3,13 @@ import time
 import pandas as pd
 import argparse
 import torch
+
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from models import PICPModel
 from data_loader import load_dataset
 
-PATH_TRAIN = "../Data/Processed/Train.nc"
+PATH_TRAIN = "../Data/Processed/Test.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 
 PATH_WEIGHTS = "../Models/Weights"
@@ -19,18 +20,19 @@ def load_checkpoint(path, model, optimizer):
         checkpoint = torch.load(path, map_location="cuda")
         model.load_state_dict(checkpoint["model_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
-        return checkpoint["epoch"] + 1, checkpoint["metrics"]
+        return checkpoint["epoch"] + 1, checkpoint["best_val_loss"], checkpoint["metrics"]
     except FileNotFoundError:
-        return 0, {"train_loss": [], "val_loss": [], "epoch": []}
+        return 0, float("inf"), {"train_loss": [], "val_loss": [], "epoch": []}
 
-def save_checkpoint(model, optimizer, epoch, metrics, path):
+def save_checkpoint(path, model, optimizer, epoch, metrics, best_val_loss):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     model_state_dict = model.state_dict()
     checkpoint = {
         "epoch": epoch,
         "model_state": model_state_dict,
         "optimizer_state": optimizer.state_dict(),
-        "metrics": metrics
+        "metrics": metrics,
+        "best_val_loss": best_val_loss
     }
     torch.save(checkpoint, path)
     print(f"Checkpoint saved at {path}")
@@ -46,53 +48,68 @@ def validate(model, val_loader, loss_function):
             total_loss += loss.item()
     return total_loss / len(val_loader)
 
-def train_epoch(model, train_loader, loss_function, optimizer):
+def train_epoch(model, train_loader, loss_function, optimizer, show_progress_bar):
     total_loss = 0.0
-    progress_bar = tqdm(train_loader, desc="Training", leave=False)
+    progress_bar = tqdm(train_loader, desc="Training", leave=True) if show_progress_bar else train_loader
+    start_time = time.perf_counter()
     for inputs, targets in progress_bar:
         inputs, targets = inputs.cuda(), targets.cuda()
         optimizer.zero_grad()
+
         predictions = model(inputs)
         loss = loss_function(predictions, targets)
+
         loss.backward()
         optimizer.step()
+
         total_loss += loss.item()
-        progress_bar.set_postfix(loss=loss.item())
-        
-    return total_loss / len(train_loader)
+        if show_progress_bar:
+            progress_bar.set_postfix(loss=loss.item())
 
-def train_experiment(model, loss_function, optimizer, train_ds, val_ds, batch_size, epochs=5):
-    model.cuda()
-    train_loader = DataLoader(train_ds, batch_size=batch_size)
-    val_loader = DataLoader(val_ds, batch_size=batch_size)
-
-    start_time = time.perf_counter()
-    for epoch in range(epochs):
-        model.train()
-        avg_train_loss = train_epoch(model, train_loader, loss_function, optimizer)
     end_time = time.perf_counter()
-    avg_val_loss = validate(model, val_loader, loss_function)
+        
+    return total_loss / len(train_loader), end_time - start_time
 
-    print(f"Validation Loss: {avg_val_loss}")
-
-    return avg_val_loss, end_time - start_time
-
-def train(model, name, loss_function, optimizer, train_ds, val_ds, batch_size, epochs=5):
+def train(train_ds, val_ds, batch_size, epochs, 
+          experiment, show_progress_bar,
+          model, name, loss_function, optimizer, **kwargs):
     model.cuda()
-    start_epoch, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer)
     train_loader = DataLoader(train_ds, batch_size=batch_size)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
+
+    if experiment:
+        start_epoch, best_val_loss, metrics = (0, float("inf"), {"train_loss": [], "val_loss": [], "epoch": []})
+    else:
+        start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer)
     
+    average_time = 0.0
+    average_val_loss = 0.0
     for epoch in range(start_epoch, epochs):
         model.train()
-        avg_train_loss = train_epoch(model, train_loader, loss_function, optimizer)
-        avg_val_loss = validate(model, val_loader, loss_function)
-        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss} - Val Loss: {avg_val_loss}")
-        metrics["train_loss"].append(avg_train_loss)
-        metrics["val_loss"].append(avg_val_loss)
-        metrics["epoch"].append(epoch)
-        save_checkpoint(model, optimizer, epoch, metrics, f"{PATH_WEIGHTS}/{name}.ckpt")
-        pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}.csv", index=False)
+        train_loss, time = train_epoch(model, train_loader, loss_function, optimizer, show_progress_bar)
+        val_loss = validate(model, val_loader, loss_function)
+
+        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss} - Val Loss: {val_loss}")
+
+        if experiment:
+            average_time += time
+            average_val_loss += val_loss
+
+        else:
+            metrics["train_loss"].append(train_loss)
+            metrics["val_loss"].append(val_loss)
+            metrics["epoch"].append(epoch)
+
+            pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}.csv", index=False)
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                save_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, optimizer, epoch, metrics, best_val_loss)
+            else:
+                save_checkpoint(f"{PATH_WEIGHTS}/{name}-Current.ckpt", model, optimizer, epoch, metrics, best_val_loss)
+        
+    if experiment:
+        return average_val_loss, average_time
 
 def main(args):
     model_type = args["model"]
@@ -105,16 +122,13 @@ def main(args):
             raise ValueError(f"Unknown model type")
     
     params = model_class.load_params()
+
     train_ds, image_size = load_dataset(path=PATH_TRAIN, input_days=params["input_days"], target_days=params["target_days"])
     val_ds, _ = load_dataset(path=PATH_VAL, input_days=params["input_days"], target_days=params["target_days"])
-    
+
     model_kwargs = model_class.initialize_model(image_size, params)
-    name = model_kwargs["name"]
-    model = model_kwargs["model"]
-    loss_function = model_kwargs["loss_function"]
-    optimizer = model_kwargs["optimizer"]
-    
-    train(model, name, loss_function, optimizer, train_ds, val_ds, params["batch_size"], epochs)
+    train(train_ds=train_ds, val_ds=val_ds, batch_size=params["batch_size"], 
+          epochs=epochs, experiment=False, show_progress_bar=True, **model_kwargs)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")

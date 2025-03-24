@@ -2,7 +2,7 @@ import csv
 import argparse
 import torch
 
-from model_trainer import train_experiment
+from model_trainer import train
 from models import PICPModel
 from data_loader import load_dataset
 
@@ -10,20 +10,17 @@ PATH_TRAIN = "../Data/Processed/Test.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 PATH_TIMINGS = "../Models/Timings"
 
-def train_timing(model, loss_function, optimizer, train_ds, val_ds, batch_size, epochs):
-    val_loss, train_time = train_experiment(model, loss_function, optimizer, train_ds, val_ds, batch_size, epochs)
-    return train_time / epochs, val_loss
-
 def main(args):
     model_type = args["model"]
     epochs = args["epochs"]
     trials = args["trials"]
     
     # Select model class
-    if model_type == "PINN":
-        model_class = PICPModel
-    else:
-        raise ValueError(f"Unknown model type")
+    match model_type:
+        case "PINN":
+            model_class = PICPModel
+        case _:
+            raise ValueError(f"Unknown model type")
     
     # Load Data
     params = model_class.load_params()
@@ -36,15 +33,16 @@ def main(args):
     
     # Run multiple trials
     for trial in range(trials):
-        # Initialize model
+        # Initialize and train model
         model_kwargs = model_class.initialize_model(image_size, params)
-        model = model_kwargs["model"].to(0)
-        loss_function = model_kwargs["loss_function"]
-        optimizer = model_kwargs["optimizer"]
-        
-        train_time, val_loss = train_timing(model, loss_function, optimizer, train_ds, val_ds, params["batch_size"], epochs)
+        val_loss, train_time = train(train_ds=train_ds, val_ds=val_ds, batch_size=params["batch_size"], epochs=epochs, 
+                                     experiment=False, show_progress_bar=True, **model_kwargs)
+
         total_time += train_time
         total_val_loss += val_loss
+
+        del model_kwargs
+        torch.cuda.empty_cache()
     
     # Compute averages
     avg_time = total_time / trials

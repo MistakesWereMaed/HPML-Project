@@ -89,9 +89,9 @@ class PICPModel(nn.Module):
         }
     
     @staticmethod
-    def load_params(dist_type="Base"):
+    def load_params():
         try:
-            with open(f"{PATH_PARAMS}/PINN-{dist_type}.json", "r") as f:
+            with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
                 print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:

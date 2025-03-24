@@ -12,14 +12,14 @@ PATH_TEST = "../Data/Processed/Test.nc"
 PATH_WEIGHTS = "../Models/Weights"
 PATH_RESULTS = "../Models/Results"
 
-def test(model, name, loss_function, optimizer, test_ds, batch_size):
+def test(model, name, loss_function, optimizer, test_ds, batch_size, **kwargs):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     load_checkpoint(f"{PATH_WEIGHTS}/{name}-Base.ckpt", model, optimizer)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
     
     # Initialize lists to store daily losses
-    daily_losses = np.zeros(test_ds.target_days)  # Assuming target_days = 7
+    daily_losses = np.zeros(test_ds.target_days)
     all_predictions = []
     all_targets = []
     
@@ -30,7 +30,7 @@ def test(model, name, loss_function, optimizer, test_ds, batch_size):
             inputs, targets = inputs.to(device), targets.to(device)
             predictions = model(inputs)
             i += 1
-            # Loop through each day in the prediction horizon (7 days)
+            # Loop through each day in the prediction horizon
             for day in range(test_ds.target_days):
                 # Calculate the loss for each individual day
                 day_loss = loss_function(predictions[:, :, day], targets[:, :, day])
@@ -43,7 +43,7 @@ def test(model, name, loss_function, optimizer, test_ds, batch_size):
 
     # Calculate the average loss per day across all batches
     daily_losses.sort()
-    daily_losses /= len(test_loader)  # Normalize by the number of batches
+    daily_losses /= len(test_loader)
     all_predictions = torch.cat(all_predictions, dim=0)
     all_targets = torch.cat(all_targets, dim=0)
 
@@ -63,15 +63,10 @@ def main(args):
     params = model_class.load_params()
     test_ds, image_size = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
     
-    model_kwargs = model_class.initialize_model(image_size, params)
-    name = model_kwargs["name"]
-    model = model_kwargs["model"]
-    optimizer = model_kwargs["optimizer"]
-    loss_function = model_kwargs["loss_function"]
+    model_kwargs = model_class.initialize_model(image_size, params)   
+    loss, predictions, targets = test(test_ds=test_ds, batch_size=params["batch_size"], **model_kwargs)
     
-    loss, predictions, targets = test(model, name, loss_function, optimizer, test_ds, params["batch_size"])
-    
-    results_path = f"{PATH_RESULTS}/{model_type}-Base.npz"
+    results_path = f"{PATH_RESULTS}/{model_type}.npz"
     np.savez_compressed(
         results_path,
         loss=loss,
