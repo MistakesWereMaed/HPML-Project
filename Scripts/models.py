@@ -5,10 +5,44 @@ import torch.optim as optim
 
 from linformer import LinformerSelfAttention
 from hyperopt import hp
+from data_loader import get_dataloader
 
 PATH_PARAMS = "../Models/Params"
 
 NUM_FEATURES = 3
+
+def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_scale=2, hyperparameters=None):
+    # Select model
+    match model_type:
+        case "PINN":
+            model_class = PICPModel
+        case _:
+            raise ValueError(f"Unknown model type")
+    # Load params
+    params = model_class.load_params() if params is None else hyperparameters
+    return_dict = {
+        "loaders": [],
+        "model_kwargs": None
+    }
+    # Load data
+    train_loader, image_size = get_dataloader(
+        path=path1, downsampling_scale=downsampling_scale, 
+        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+    )
+    model_kwargs = model_class.initialize_model(image_size, params)
+
+    return_dict["loaders"].append(train_loader)
+    return_dict["model_kwargs"] = model_kwargs
+    # Load validation data if needed
+    if path2:
+        val_loader, _ = get_dataloader(
+            path=path2, downsampling_scale=downsampling_scale, 
+            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+        )
+
+        return_dict["loaders"].append(val_loader)
+
+    return return_dict
 
 ###### PINN ######
 def calculate_seq_length(image_size, kernel_size, padding=0, stride=1):
@@ -72,14 +106,14 @@ class PICPModel(nn.Module):
             u = u_g + u_prime
             v = v_g + v_prime
 
-        return torch.stack((u, v), dim=1)
+        return torch.stack((u, v, ssh), dim=1)
 
     @staticmethod
     def get_hyperparam_space():
         return {
             "input_days": hp.choice("input_days", [1, 3, 7]),
             "target_days": hp.choice("target_days", [1, 7, 15]),
-            "batch_size": hp.choice("batch_size", [1, 2, 4, 8]),
+            "batch_size": hp.choice("batch_size", [1]),
             "kernel_size": hp.choice("kernel_size", [(3, 3), (5, 10), (7, 7)]),
             "linformer_k": hp.quniform("linformer_k", 128, 528, 128),
             "num_heads": hp.choice("num_heads", [1, 2, 4]),
@@ -91,7 +125,7 @@ class PICPModel(nn.Module):
     @staticmethod
     def load_params():
         try:
-            with open(f"{PATH_PARAMS}/PINN.json", "r") as f:
+            with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
                 print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:
