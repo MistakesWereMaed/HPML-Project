@@ -3,24 +3,31 @@ import numpy as np
 import torch
 
 from tqdm import tqdm
-from torch.utils.data import DataLoader
-
-from models import PICPModel
+from models import load_and_initialize
 from model_trainer import load_checkpoint
-from data_loader import load_dataset
 
 PATH_TEST = "../Data/Processed/Test.nc"
 PATH_WEIGHTS = "../Models/Weights"
 PATH_RESULTS = "../Models/Results"
 
-def test(model, name, loss_function, optimizer, test_ds, batch_size, **kwargs):
+def test(model_type, path_test, downsampling_scale):
+    
+    model_dict = load_and_initialize(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale)
+    model_kwargs = model_dict["model_kwargs"]
+
+    name = model_kwargs["name"]
+    model = model_kwargs["model"]
+    optimizer = model_kwargs["optimizer"]
+    loss_function = model_kwargs["loss_function"]
+    target_days = model_kwargs["hyperparameters"]["target_days"]
+    
+    test_loader = model_dict["loaders"][0]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     load_checkpoint(f"{PATH_WEIGHTS}/{name}-Base.ckpt", model, optimizer)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
     
     # Initialize lists to store daily losses
-    daily_losses = np.zeros(test_ds.target_days)
+    daily_losses = np.zeros(target_days)
     all_predictions = []
     all_targets = []
     
@@ -32,7 +39,7 @@ def test(model, name, loss_function, optimizer, test_ds, batch_size, **kwargs):
             predictions = model(inputs)
             i += 1
             # Loop through each day in the prediction horizon
-            for day in range(test_ds.target_days):
+            for day in range(target_days):
                 # Calculate the loss for each individual day
                 day_loss = loss_function(predictions[:, :, day], targets[:, :, day])
                 daily_losses[day] += day_loss.item()
@@ -54,18 +61,16 @@ def test(model, name, loss_function, optimizer, test_ds, batch_size, **kwargs):
 
 
 def main(args):
-    model_type = args["model"]
-    match model_type:
-        case "PINN":
-            model_class = PICPModel
-        case _:
-            raise ValueError(f"Unknown model type")
-    
-    params = model_class.load_params()
-    test_ds, image_size = load_dataset(path=PATH_TEST, input_days=params["input_days"], target_days=params["target_days"])
-    
-    model_kwargs = model_class.initialize_model(image_size, params)   
-    loss, predictions, targets = test(test_ds=test_ds, batch_size=params["batch_size"], **model_kwargs)
+    parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
+    parser.add_argument("--model", type=str, required=True, help="Type of model")
+    parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
+    parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
+
+    args = parser.parse_args()
+    model_type = args.model
+    downsampling_scale = args.downsampling
+ 
+    loss, predictions, targets = test(model_type, PATH_TEST, downsampling_scale)
     
     results_path = f"{PATH_RESULTS}/{model_type}.npz"
     np.savez_compressed(
@@ -76,7 +81,4 @@ def main(args):
     )
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test a model with specific parameters.")
-    parser.add_argument("--model", type=str, required=True, help="Type of model")
-    args = parser.parse_args()
-    main(vars(args))
+    main()
