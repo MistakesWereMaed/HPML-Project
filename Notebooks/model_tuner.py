@@ -35,14 +35,18 @@ def objective(params, model_class, epochs):
     port = get_unused_port()
     world_size = torch.cuda.device_count()
 
-    with mp.Manager() as manager:
-        return_dict = manager.dict()
-        # Launch training across multiple GPUs
-        if world_size > 1:
-            mp.spawn(train_wrapper, args=(world_size, port, model_class, params, epochs, return_dict), nprocs=world_size, join=True)
-        else:
-            train_wrapper(0, world_size, port, model_class, params, epochs, return_dict)
-        val_loss = return_dict["loss"]
+    try:
+        with mp.Manager() as manager:
+            return_dict = manager.dict()
+            # Launch training across multiple GPUs
+            if world_size > 1:
+                mp.spawn(train_wrapper, args=(world_size, port, model_class, params, epochs, return_dict), nprocs=world_size, join=True)
+            else:
+                train_wrapper(0, world_size, port, model_class, params, epochs, return_dict)
+            val_loss = return_dict["loss"]
+    except Exception as e:
+        print(f"Training failed with params {params}: {e}")
+        return {'loss': float('inf'), 'status': 'fail', 'params': params}
 
     return {'loss': val_loss, 'status': 'ok', 'params': params}
 
