@@ -52,7 +52,7 @@ def validate(rank, val_loader, model, loss_function):
     total_loss = 0.0
     with torch.no_grad():
         for inputs, targets in val_loader:
-            inputs, targets = inputs.cuda(), targets.cuda()
+            inputs, targets = inputs.to(rank), targets.to(rank)
             predictions = model(inputs)
             loss = loss_function(predictions, targets)
             total_loss += loss.item()
@@ -68,7 +68,7 @@ def train_epoch(rank, train_loader, show_progress_bar, model, loss_function, opt
 
     start_time = time.perf_counter()
     for inputs, targets in progress_bar:
-        inputs, targets = inputs.cuda(), targets.cuda()
+        inputs, targets = inputs.to(rank), targets.to(rank)
         optimizer.zero_grad()
 
         predictions = model(inputs)
