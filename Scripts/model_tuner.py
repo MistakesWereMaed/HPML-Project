@@ -21,7 +21,6 @@ def train_wrapper(model_type, params, epochs, downsampling_scale):
         experiment=True, show_progress_bar=True, hyperparameters=params
     )
     
-    del model_kwargs
     torch.cuda.empty_cache()
     
     return val_loss

@@ -36,8 +36,6 @@ def main():
 
         total_time += train_time
         total_val_loss += val_loss
-
-        del model_kwargs
         torch.cuda.empty_cache()
     
     # Compute averages

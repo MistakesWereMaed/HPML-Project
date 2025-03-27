@@ -19,7 +19,7 @@ def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_
         case _:
             raise ValueError(f"Unknown model type")
     # Load params
-    params = model_class.load_params() if params is None else hyperparameters
+    params = model_class.load_params() if hyperparameters is None else hyperparameters
     return_dict = {
         "loaders": [],
         "model_kwargs": None
@@ -27,7 +27,8 @@ def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_
     # Load data
     train_loader, image_size = get_dataloader(
         path=path1, downsampling_scale=downsampling_scale, 
-        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"],
+        splits=12
     )
     model_kwargs = model_class.initialize_model(image_size, params)
 
@@ -37,7 +38,8 @@ def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_
     if path2:
         val_loader, _ = get_dataloader(
             path=path2, downsampling_scale=downsampling_scale, 
-            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
+            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"],
+            splits=1
         )
 
         return_dict["loaders"].append(val_loader)

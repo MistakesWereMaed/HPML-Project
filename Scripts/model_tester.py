@@ -24,7 +24,7 @@ def test(model_type, path_test, downsampling_scale):
     test_loader = model_dict["loaders"][0]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    load_checkpoint(f"{PATH_WEIGHTS}/{name}-Base.ckpt", model, optimizer)
+    load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, optimizer)
     
     # Initialize lists to store daily losses
     daily_losses = np.zeros(target_days)
@@ -32,7 +32,7 @@ def test(model_type, path_test, downsampling_scale):
     all_targets = []
     
     i = 0
-    progress_bar = tqdm(test_loader, desc="Testing", leave=True)
+    progress_bar = tqdm(test_loader[0], desc="Testing", leave=True)
     with torch.no_grad():
         for inputs, targets in progress_bar:
             inputs, targets = inputs.to(device), targets.to(device)
@@ -47,7 +47,7 @@ def test(model_type, path_test, downsampling_scale):
             all_predictions.append(predictions.cpu())
             all_targets.append(targets.cpu())
             
-            progress_bar.set_postfix(loss=np.mean(daily_losses / i))
+            progress_bar.set_postfix(loss=np.mean(daily_losses) / i)
 
     # Calculate the average loss per day across all batches
     daily_losses.sort()
@@ -60,7 +60,7 @@ def test(model_type, path_test, downsampling_scale):
     return daily_losses, all_predictions, all_targets
 
 
-def main(args):
+def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")

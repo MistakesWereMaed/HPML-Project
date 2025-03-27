@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 from models import load_and_initialize
 
-PATH_TRAIN = "../Data/Processed/Test.nc"
+PATH_TRAIN = "../Data/Processed/Train.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 
 PATH_WEIGHTS = "../Models/Weights"
@@ -90,15 +90,15 @@ def train(model_type, epochs,
     if experiment:
         start_epoch, best_val_loss, metrics = (0, float("inf"), {"train_loss": [], "val_loss": [], "epoch": []})
     else:
-        start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}-Current.ckpt", model, optimizer)
+        start_epoch, best_val_loss, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, optimizer)
     
     average_time = 0.0
     average_val_loss = 0.0
     for epoch in range(start_epoch, epochs):
-        train_loss, time = train_epoch(train_loader=train_loader, show_progress_bar=show_progress_bar, **model_kwargs)
-        val_loss = validate(val_loader=val_loader, **model_kwargs)
-
-        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss} - Val Loss: {val_loss}")
+        for loader in train_loader:
+            train_loss, time = train_epoch(train_loader=loader, show_progress_bar=show_progress_bar, **model_kwargs)
+            val_loss = validate(val_loader=val_loader[0], **model_kwargs)
+            print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss} - Val Loss: {val_loss}")
         # Update time and val loss for experiments
         if experiment:
             average_time += time
@@ -135,3 +135,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # Asynch train file load during validation
