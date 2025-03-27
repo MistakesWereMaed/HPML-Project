@@ -12,19 +12,18 @@ PATH_RESULTS = "../Models/Results"
 
 def test(model_type, path_test, downsampling_scale):
     
-    model_dict = load_and_initialize(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale)
+    model_dict = load_and_initialize(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale, splits=1)
     model_kwargs = model_dict["model_kwargs"]
 
     name = model_kwargs["name"]
     model = model_kwargs["model"]
-    optimizer = model_kwargs["optimizer"]
     loss_function = model_kwargs["loss_function"]
     target_days = model_kwargs["hyperparameters"]["target_days"]
     
     test_loader = model_dict["loaders"][0]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, optimizer)
+    load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, model_kwargs["optimizer"])
     
     # Initialize lists to store daily losses
     daily_losses = np.zeros(target_days)
@@ -32,7 +31,7 @@ def test(model_type, path_test, downsampling_scale):
     all_targets = []
     
     i = 0
-    progress_bar = tqdm(test_loader[0], desc="Testing", leave=True)
+    progress_bar = tqdm(test_loader, desc="Testing", leave=True)
     with torch.no_grad():
         for inputs, targets in progress_bar:
             inputs, targets = inputs.to(device), targets.to(device)

@@ -1,5 +1,4 @@
 import xarray as xr
-import multiprocessing
 import numpy as np
 import torch
 
@@ -40,38 +39,40 @@ class XarrayDataset(Dataset):
 import xarray as xr
 from torch.utils.data import DataLoader
 
-def get_dataloader(path=None, downsampling_scale=2, input_days=7, target_days=15, batch_size=1, splits=4):
+def get_dataset(path=None, downsampling_scale=2, input_days=1, target_days=1, splits=1):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
-
     # Load dataset
-    ds = xr.open_dataset(path, chunks={"time": 31})
-
+    ds = xr.open_dataset(path)
+    ds = ds.chunk({"time": ds.sizes["time"] // splits})
     # Apply downsampling
     if downsampling_scale >= 1:
         ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
-
     # Image size
     lat_size = ds.sizes.get("latitude", 0)
     lon_size = ds.sizes.get("longitude", 0)
-
+    # Skip splitting for single split
+    if splits == 1:
+        dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
+        return [dataset], (lat_size, lon_size)
     # Split dataset along the "time" dimension
     total_time = ds.sizes["time"]
     split_size = total_time // splits
-    dataloaders = []
-
+    datasets = []
+    # Split data into 
     for i in range(splits):
         start_idx = i * split_size
-        end_idx = (i + 1) * split_size if i < splits - 1 else total_time  # Ensure the last split gets remaining data
-        
+        end_idx = (i + 1) * split_size if i < splits - 1 else total_time
         # Select the subset of the dataset
         ds_split = ds.isel(time=slice(start_idx, end_idx))
-
         # Convert to custom dataset class
         dataset = XarrayDataset(ds_split, input_vars, target_vars, input_days, target_days)
+        datasets.append(dataset)
 
-        # Create DataLoader
-        dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2)
-        dataloaders.append(dataloader)
+    return datasets, (lat_size, lon_size)
 
-    return dataloaders, (lat_size, lon_size)
+def load_data(ds, batch_size):
+    ds.load()
+    dataloader = DataLoader(ds, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+
+    return dataloader
