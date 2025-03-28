@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import xarray as xr
 import matplotlib.pyplot as plt
 
 import cartopy.crs as ccrs
@@ -89,16 +90,16 @@ def plot_loss_history(csv_path):
     plt.tight_layout()
     plt.show()
 
-def plot_accuracy_over_time(npz_path):
-    # Load NPZ file
-    data = np.load(npz_path)
-    
-    # Extract loss
-    loss = data["loss"]
-    
+def plot_accuracy_over_time(nc_path):
+    # Load NetCDF file using xarray
+    ds = xr.open_dataset(nc_path)
+
+    # Extract loss values (assuming they are stored under the "loss" variable)
+    loss = ds["loss"].values
+
     # Generate x-axis as days (assuming each entry corresponds to a day)
     days = np.arange(1, len(loss) + 1)
-    
+
     # Plot
     plt.figure(figsize=(8, 5))
     plt.plot(days, loss, marker='o', linestyle='-')
@@ -107,3 +108,6 @@ def plot_accuracy_over_time(npz_path):
     plt.title("Model Loss Over Prediction Lead Time")
     plt.grid(True)
     plt.show()
+
+    # Close dataset
+    ds.close()

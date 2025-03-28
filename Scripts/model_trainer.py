@@ -42,9 +42,9 @@ def validate(val_loader, model, loss_function, show_progress_bar=True, **kwargs)
 
     with torch.no_grad():
         total_loss = 0.0
-        progress_bar = tqdm(val_loader, desc="Training", leave=True) if show_progress_bar else val_loader
+        progress_bar = tqdm(val_loader, desc="Validating", leave=False) if show_progress_bar else val_loader
         
-        for inputs, targets in val_loader:
+        for inputs, targets in progress_bar:
             inputs, targets = inputs.cuda(), targets.cuda()
             predictions = model(inputs)
 
@@ -55,12 +55,12 @@ def validate(val_loader, model, loss_function, show_progress_bar=True, **kwargs)
                 progress_bar.set_postfix(loss=loss.item())
     return total_loss / len(val_loader)
 
-def train_batch(train_loader, show_progress_bar, model, loss_function, optimizer, **kwargs):
+def train_batch(train_loader, scheduler, show_progress_bar, model, loss_function, optimizer, **kwargs):
     model.cuda()
     model.train()
 
     total_loss = 0.0
-    progress_bar = tqdm(train_loader, desc="Training", leave=True) if show_progress_bar else train_loader
+    progress_bar = tqdm(train_loader, desc="Training", leave=False) if show_progress_bar else train_loader
 
     for inputs, targets in progress_bar:
         inputs, targets = inputs.cuda(), targets.cuda()
@@ -75,16 +75,19 @@ def train_batch(train_loader, show_progress_bar, model, loss_function, optimizer
         total_loss += loss.item()
         if show_progress_bar:
             progress_bar.set_postfix(loss=loss.item())
-        
+
+    scheduler.step()
     return total_loss / len(train_loader)
 
-def train(model_type, epochs=10, validation_interval=1,
+def train(model_type, epochs=10,
           path_train=None, path_val=None, downsampling_scale=2, splits=1,
           experiment=False, show_progress_bar=True, hyperparameters=None):
     # Initialize model
-    model_dict = load_and_initialize(model_type=model_type, path1=path_train, path2=path_val, downsampling_scale=downsampling_scale, splits=splits)
-    # Unpack model parameters
+    model_dict = load_and_initialize(model_type=model_type, path1=path_train, path2=path_val, downsampling_scale=downsampling_scale, splits=splits, hyperparameters=hyperparameters)
+    # Unpack sub-dictionaries
     model_kwargs = model_dict["model_kwargs"]
+    params = model_kwargs["hyperparameters"]
+    #Unpack model
     name = model_kwargs["name"]
     optimizer = model_kwargs["optimizer"]
     model = model_kwargs["model"]
@@ -99,21 +102,23 @@ def train(model_type, epochs=10, validation_interval=1,
     # Training loop
     total_time = 0.0
     total_val_loss = 0.0
+    val_loader = load_data(val_set, batch_size=params["batch_size"], input_days=params["input_days"], target_days=params["target_days"])
     for epoch in range(start_epoch, epochs):
         start_time = time.perf_counter()
         for dataset, i in zip(train_set, range(splits)):
-            loader = load_data(dataset, batch_size=model_kwargs["batch_size"])
-            train_loss  = train_batch(train_loader=loader, show_progress_bar=show_progress_bar, **model_kwargs)
-            if (i+1) % validation_interval == 0 or splits == 1:
-                val_loss = validate(val_loader=val_set, **model_kwargs)
-                print(f"Epoch {epoch+1}: Split {i+1}/{splits} - Train Loss: {train_loss} - Val Loss: {val_loss}")
-            else:
-                print(f"Epoch {epoch+1}: Split {i+1}/{splits} - Train Loss: {train_loss} - Skipping Validation")
-            del loader
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+            train_loader = load_data(dataset, batch_size=params["batch_size"], input_days=params["input_days"], target_days=params["target_days"])
+
+            train_loss  = train_batch(train_loader=train_loader, scheduler=scheduler, show_progress_bar=show_progress_bar, **model_kwargs)
+            val_loss = validate(val_loader=val_loader, show_progress_bar=show_progress_bar, **model_kwargs)
+
+            print(f"Epoch {epoch+1}: Split {i+1}/{splits} - Train Loss: {train_loss:.4f} - Val Loss: {val_loss:.4f}")
         end_time = time.perf_counter()
+        time_taken = end_time - start_time
+        print(f"Time for Epoch {epoch+1}: {time_taken:.4f} Seconds")
         # Update time and val loss for experiments
         if experiment:
-            total_time += (end_time - start_time)
+            total_time += time_taken
             total_val_loss += val_loss
         # Update metrics otherwise
         else:
@@ -137,7 +142,6 @@ def main():
 
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
-    parser.add_argument("--interval", type=int, default=1, help="Validation interval")
     parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
     parser.add_argument("--splits", type=int, default=1, help="Number of splits")
 
@@ -145,12 +149,11 @@ def main():
 
     model_type = args.model
     epochs = args.epochs
-    validation_interval = args.interval
     downsampling_scale = args.downsampling
     splits = args.splits
 
     train(
-        model_type=model_type, epochs=epochs, validation_interval=validation_interval, 
+        model_type=model_type, epochs=epochs, 
         path_train=PATH_TRAIN, path_val=PATH_VAL, downsampling_scale=downsampling_scale, splits=splits, 
         experiment=False, show_progress_bar=True
     )

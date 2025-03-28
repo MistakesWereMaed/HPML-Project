@@ -4,7 +4,7 @@ import torch
 
 from model_trainer import train
 
-PATH_TRAIN = "../Data/Processed/Test.nc"
+PATH_TRAIN = "../Data/Processed/Train.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
 PATH_TIMINGS = "../Models/Timings"
 
@@ -12,12 +12,14 @@ def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
+    parser.add_argument("--splits", type=int, default=1, help="Number of splits")
     parser.add_argument("--trials", type=int, default=2, help="Number of trials")
     parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
 
     args = parser.parse_args()
     model_type = args.model
     epochs = args.epochs
+    splits = args.splits
     trials = args.trials
     downsampling_scale = args.downsampling
     
@@ -30,7 +32,7 @@ def main():
         # Initialize and train model
         val_loss, train_time = train(
             model_type=model_type, epochs=epochs,
-            path_train=PATH_TRAIN, path_val=PATH_VAL, downsampling_scale=downsampling_scale, 
+            path_train=PATH_TRAIN, path_val=PATH_VAL, downsampling_scale=downsampling_scale, splits=splits,
             experiment=True, show_progress_bar=True
         )
 

@@ -6,7 +6,8 @@ from torch.utils.data import Dataset, DataLoader
 
 class XarrayDataset(Dataset):
     def __init__(self, ds, input_vars, target_vars, input_days=7, target_days=15):
-        ds["time"] = ds["time"].dt.dayofyear
+        if ds["time"].dtype != np.int64:
+            ds["time"] = ds["time"].dt.dayofyear
         self.ds = ds
         self.input_vars = input_vars
         self.target_vars = target_vars
@@ -36,12 +37,7 @@ class XarrayDataset(Dataset):
 
         return x_tensor, y_tensor
 
-import xarray as xr
-from torch.utils.data import DataLoader
-
-def get_dataset(path=None, downsampling_scale=2, input_days=1, target_days=1, splits=1):
-    input_vars = ['zos', 'u10', 'v10']
-    target_vars = ['uo', 'vo', 'zos']
+def get_dataset(path=None, downsampling_scale=2, splits=1):
     # Load dataset
     ds = xr.open_dataset(path)
     ds = ds.chunk({"time": ds.sizes["time"] // splits})
@@ -53,26 +49,27 @@ def get_dataset(path=None, downsampling_scale=2, input_days=1, target_days=1, sp
     lon_size = ds.sizes.get("longitude", 0)
     # Skip splitting for single split
     if splits == 1:
-        dataset = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-        return [dataset], (lat_size, lon_size)
+        return ds, (lat_size, lon_size)
     # Split dataset along the "time" dimension
     total_time = ds.sizes["time"]
     split_size = total_time // splits
+    # Split data into chunks
     datasets = []
-    # Split data into 
     for i in range(splits):
         start_idx = i * split_size
         end_idx = (i + 1) * split_size if i < splits - 1 else total_time
         # Select the subset of the dataset
         ds_split = ds.isel(time=slice(start_idx, end_idx))
-        # Convert to custom dataset class
-        dataset = XarrayDataset(ds_split, input_vars, target_vars, input_days, target_days)
-        datasets.append(dataset)
+        datasets.append(ds_split)
 
     return datasets, (lat_size, lon_size)
 
-def load_data(ds, batch_size):
+def load_data(ds, batch_size, input_days=1, target_days=1):
+    input_vars = ['zos', 'u10', 'v10']
+    target_vars = ['uo', 'vo', 'zos']
+
     ds.load()
-    dataloader = DataLoader(ds, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    xr_ds = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
+    dataloader = DataLoader(xr_ds, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True)
 
     return dataloader

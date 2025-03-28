@@ -1,10 +1,12 @@
 import argparse
 import numpy as np
+import xarray as xr
 import torch
 
 from tqdm import tqdm
 from models import load_and_initialize
 from model_trainer import load_checkpoint
+from data_loader import load_data
 
 PATH_TEST = "../Data/Processed/Test.nc"
 PATH_WEIGHTS = "../Models/Weights"
@@ -14,17 +16,18 @@ def test(model_type, path_test, downsampling_scale):
     
     model_dict = load_and_initialize(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale, splits=1)
     model_kwargs = model_dict["model_kwargs"]
+    params = model_kwargs["hyperparameters"]
 
     name = model_kwargs["name"]
     model = model_kwargs["model"]
     loss_function = model_kwargs["loss_function"]
-    target_days = model_kwargs["hyperparameters"]["target_days"]
+    target_days = params["target_days"]
     
-    test_loader = model_dict["loaders"][0]
+    test_set = model_dict["datasets"][0]
+    test_loader = load_data(test_set, batch_size=params["batch_size"], input_days=params["input_days"], target_days=params["target_days"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, model_kwargs["optimizer"])
-    
     # Initialize lists to store daily losses
     daily_losses = np.zeros(target_days)
     all_predictions = []
@@ -59,6 +62,32 @@ def test(model_type, path_test, downsampling_scale):
     return daily_losses, all_predictions, all_targets
 
 
+def save_results_as_netcdf(model_type, loss, predictions, targets):
+    results_path = f"{PATH_RESULTS}/{model_type}.nc"
+    
+    all_predictions_np = predictions.detach().cpu().numpy().astype(np.float32)
+    all_targets_np = targets.detach().cpu().numpy().astype(np.float32)
+    # Define dimensions based on shape
+    num_samples, num_channels, num_time_steps, lat_size, lon_size = all_predictions_np.shape
+    # Create an xarray dataset with explicit dimensions
+    ds = xr.Dataset(
+    {
+        "loss": (("lead_time",), loss.astype(np.float32)),
+        "predictions": (("sample", "channel", "time", "latitude", "longitude"), all_predictions_np),
+        "targets": (("sample", "channel", "time", "latitude", "longitude"), all_targets_np),
+    },
+    coords={
+        "sample": np.arange(num_samples),
+        "channel": np.arange(num_channels),
+        "time": np.arange(num_time_steps),
+        "latitude": np.linspace(-90, 90, lat_size),
+        "longitude": np.linspace(-180, 180, lon_size),
+    },
+)
+    
+    ds.to_netcdf(results_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
@@ -70,14 +99,7 @@ def main():
     downsampling_scale = args.downsampling
  
     loss, predictions, targets = test(model_type, PATH_TEST, downsampling_scale)
-    
-    results_path = f"{PATH_RESULTS}/{model_type}.npz"
-    np.savez_compressed(
-        results_path,
-        loss=loss,
-        predictions=predictions.numpy(),
-        targets=targets.numpy()
-    )
+    save_results_as_netcdf(model_type, loss, predictions, targets)
 
 if __name__ == "__main__":
     main()

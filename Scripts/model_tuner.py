@@ -9,26 +9,26 @@ from functools import partial
 from models import PICPModel
 from model_trainer import train
 
-PATH_VAL = "../Data/Processed/Val.nc"
-PATH_TEST = "../Data/Processed/Test.nc"
+PATH_VAL = "../Data/Processed/Train.nc"
+PATH_TEST = "../Data/Processed/Val.nc"
 PATH_PARAMS = "../Models/Params"
 
-def train_wrapper(model_type, params, epochs, downsampling_scale):
+def train_wrapper(model_type, params, epochs, downsampling_scale, splits):
     print("Training...")
     val_loss, _ = train(
         model_type=model_type, epochs=epochs,
-        path_train=PATH_VAL, path_val=PATH_TEST, downsampling_scale=downsampling_scale, 
-        experiment=True, show_progress_bar=True, hyperparameters=params
+        path_train=PATH_VAL, path_val=PATH_TEST, downsampling_scale=downsampling_scale, splits=splits,
+        experiment=True, show_progress_bar=False, hyperparameters=params
     )
     
     torch.cuda.empty_cache()
     
     return val_loss
 
-def objective(params, model_type, epochs, downsampling_scale):
+def objective(params, model_type, epochs, downsampling_scale, splits):
     print(params)
     try:
-        val_loss = train_wrapper(model_type, params, epochs, downsampling_scale)
+        val_loss = train_wrapper(model_type, params, epochs, downsampling_scale, splits)
     except Exception as e:
         print(f"Training failed with params {params}: {e}")
         return {'loss': float('inf'), 'status': 'fail', 'params': params}
@@ -39,12 +39,14 @@ def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
+    parser.add_argument("--splits", type=int, default=1, help="Number of splits")
     parser.add_argument("--trials", type=int, default=2, help="Number of trials")
     parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
 
     args = parser.parse_args()
     model_type = args.model
     epochs = args.epochs
+    splits = args.splits
     trials = args.trials
     downsampling_scale = args.downsampling
     # Select model
@@ -55,7 +57,7 @@ def main():
             raise ValueError(f"Unknown model type")
     # Get hyperparameter space and run trials
     space = model_class.get_hyperparam_space()
-    objective_with_args = partial(objective, model_type=model_type, epochs=epochs, downsampling_scale=downsampling_scale)
+    objective_with_args = partial(objective, model_type=model_type, epochs=epochs, downsampling_scale=downsampling_scale, splits=splits)
     
     trials_file = f"{PATH_PARAMS}/{model_type}_trials.pkl"
     
@@ -69,7 +71,7 @@ def main():
 
     try:
         # Continue tuning from previous progress
-        max_evals = len(trials.trials) + args["trials"]
+        max_evals = len(trials.trials) + args.trials
         best = fmin(fn=objective_with_args, space=space, algo=tpe.suggest, 
                     max_evals=max_evals, trials=trials)
 

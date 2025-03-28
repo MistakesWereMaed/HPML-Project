@@ -25,23 +25,14 @@ def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_
         "model_kwargs": None
     }
     # Load data
-    train_set, image_size = get_dataset(
-        path=path1, downsampling_scale=downsampling_scale, 
-        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"],
-        splits=splits
-    )
+    train_set, image_size = get_dataset(path=path1, downsampling_scale=downsampling_scale, splits=splits)
     model_kwargs = model_class.initialize_model(image_size, params)
 
     return_dict["datasets"].append(train_set)
     return_dict["model_kwargs"] = model_kwargs
-    # Load validation data if needed
+    # Load validation data
     if path2:
-        val_set, _ = get_dataset(
-            path=path2, downsampling_scale=downsampling_scale, 
-            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"],
-            splits=1
-        )
-
+        val_set, _ = get_dataset(path=path2, downsampling_scale=downsampling_scale, splits=1)
         return_dict["datasets"].append(val_set)
 
     return return_dict
@@ -113,9 +104,9 @@ class PICPModel(nn.Module):
     @staticmethod
     def get_hyperparam_space():
         return {
-            "input_days": hp.choice("input_days", [1]),
-            "target_days": hp.choice("target_days", [1]),
-            "batch_size": hp.choice("batch_size", [1, 2, 4, 8]),
+            "input_days": hp.choice("input_days", [1, 3, 7]),
+            "target_days": hp.choice("target_days", [1, 7, 15]),
+            "batch_size": hp.choice("batch_size", [1]),
             "kernel_size": hp.choice("kernel_size", [(3, 3), (5, 10), (7, 7)]),
             "linformer_k": hp.quniform("linformer_k", 128, 528, 128),
             "num_heads": hp.choice("num_heads", [1, 2, 4]),
