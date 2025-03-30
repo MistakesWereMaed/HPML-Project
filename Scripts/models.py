@@ -119,7 +119,6 @@ class PICPModel(nn.Module):
     def load_params():
         try:
             with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
-                print("Loading saved params")
                 params = json.load(f)
         except FileNotFoundError:
             params = {

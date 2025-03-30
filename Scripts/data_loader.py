@@ -70,6 +70,6 @@ def load_data(ds, batch_size, input_days=1, target_days=1):
 
     ds.load()
     xr_ds = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    dataloader = DataLoader(xr_ds, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    dataloader = DataLoader(xr_ds, batch_size=batch_size, num_workers=2, pin_memory=True, persistent_workers=True)
 
     return dataloader
