@@ -5,13 +5,13 @@ import torch.optim as optim
 
 from linformer import LinformerSelfAttention
 from hyperopt import hp
-from data_loader import get_dataloader
+from data_loader import get_dataset
 
 PATH_PARAMS = "../Models/Params"
 
 NUM_FEATURES = 3
 
-def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_scale=2, hyperparameters=None):
+def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_scale=2, splits=12, hyperparameters=None):
     # Select model
     match model_type:
         case "PINN":
@@ -19,28 +19,21 @@ def load_and_initialize(model_type="PINN", path1=None, path2=None, downsampling_
         case _:
             raise ValueError(f"Unknown model type")
     # Load params
-    params = model_class.load_params() if params is None else hyperparameters
+    params = model_class.load_params() if hyperparameters is None else hyperparameters
     return_dict = {
-        "loaders": [],
+        "datasets": [],
         "model_kwargs": None
     }
     # Load data
-    train_loader, image_size = get_dataloader(
-        path=path1, downsampling_scale=downsampling_scale, 
-        input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
-    )
+    train_set, image_size = get_dataset(path=path1, downsampling_scale=downsampling_scale, splits=splits)
     model_kwargs = model_class.initialize_model(image_size, params)
 
-    return_dict["loaders"].append(train_loader)
+    return_dict["datasets"].append(train_set)
     return_dict["model_kwargs"] = model_kwargs
-    # Load validation data if needed
+    # Load validation data
     if path2:
-        val_loader, _ = get_dataloader(
-            path=path2, downsampling_scale=downsampling_scale, 
-            input_days=params["input_days"], target_days=params["target_days"], batch_size=params["batch_size"]
-        )
-
-        return_dict["loaders"].append(val_loader)
+        val_set, _ = get_dataset(path=path2, downsampling_scale=downsampling_scale, splits=1)
+        return_dict["datasets"].append(val_set)
 
     return return_dict
 
@@ -150,7 +143,7 @@ class PICPModel(nn.Module):
         # Initialize model
         model = PICPModel(image_size=image_size, in_channels=in_channels, out_channels=out_channels, **params)
         loss_function = nn.SmoothL1Loss(beta=1.0)
-        optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
+        optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"]) # Add scheduler
         # Package returns
         model_kwargs = {
             "name": "PINN",
