@@ -9,8 +9,8 @@ import torch.distributed as dist
 
 from tqdm import tqdm
 from torch.nn.parallel import DistributedDataParallel as DDP
-from models import load_and_initialize
-from data_loader import load_data
+from models import initialize_model
+from data_loader import load_data, get_dataset, get_image_size
 
 PATH_TRAIN = "../Data/Processed/Train.nc"
 PATH_VAL = "../Data/Processed/Val.nc"
@@ -81,7 +81,7 @@ def train_epoch(rank, chunks, model, loss_function, optimizer, params, show_prog
     chunk_count = len(chunks)
     for chunk, i in zip(chunks, range(chunk_count)):
         # Load data for the assigned split
-        train_loader = load_data(chunk, params["batch_size"], params["input_days"], params["target_days"])
+        train_loader = load_data(chunk)
         # Train and validate
         show_progress_bar = rank == 0 and show_progress_bar
         train_loss = train_chunk(rank, train_loader, model, loss_function, optimizer, show_progress_bar)
@@ -91,13 +91,13 @@ def train_epoch(rank, chunks, model, loss_function, optimizer, params, show_prog
 
     return train_loss
 
-def train_process(rank, world_size, name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, show_progress_bar):
+def train_process(rank, world_size, name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, experiment, show_progress_bar):
     # Initialize DDP
     if rank == 0: print("Initializing DDP...\n")
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
     model = DDP(model.to(rank), device_ids=[rank])
     # Training loop
-    val_loader = load_data(val_set, params["batch_size"], params["input_days"], params["target_days"])
+    val_loader = load_data(val_set)
     for epoch in range(start_epoch, epochs):
         # Skip logs and metrics unless rank 0
         if rank != 0: 
@@ -122,7 +122,7 @@ def train_process(rank, world_size, name, model, optimizer, loss_function, chunk
     dist.destroy_process_group()
     if rank == 0: 
         pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}.csv", index=False)
-        save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epoch, metrics)
+        if experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epoch, metrics)
 
 def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_scale=2, splits=1, experiment=False, show_progress_bar=True, hyperparameters=None):
     # Initialize multiprocessing environment
@@ -130,22 +130,15 @@ def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_sc
     world_size = torch.cuda.device_count()
     # Initialize model
     print("Initializing Model...")
-    model_dict = load_and_initialize(model_type, path_train, path_val, downsampling_scale, splits, hyperparameters)
-    # Unpack dictionaries
-    model_kwargs = model_dict["model_kwargs"]
-    params = model_kwargs["hyperparameters"]
-    # Unpack model
-    name = model_kwargs["name"]
-    model = model_kwargs["model"]
-    optimizer = model_kwargs["optimizer"]
-    loss_function = model_kwargs["loss_function"]
+    image_size = get_image_size(path_train, downsampling_scale)
+    model, optimizer, loss_function, params = initialize_model(image_size, model_type, hyperparameters)
     # Unpack datasets
-    print("Chunking Datasets...")
-    train_set = model_dict["datasets"][0]
-    val_set = model_dict["datasets"][1]
+    print("Loading Data...")
+    train_set = get_dataset(path=path_train, downsampling_scale=downsampling_scale, splits=splits)
+    val_set = get_dataset(path=path_val, downsampling_scale=downsampling_scale, splits=1)
     # Load checkpoint
     print("Loading Checkpoint...")
-    start_epoch, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{name}-Best.ckpt", model, optimizer, experiment)
+    start_epoch, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{model.name}-Best.ckpt", model, optimizer, experiment)
     processes = []
     # Initialize processes
     for rank in range(world_size):
@@ -158,7 +151,7 @@ def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_sc
         chunks = train_set[start_idx:end_idx]
         # Start processes
         p = mp.Process(target=train_process, args=(
-            rank, world_size, name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, show_progress_bar
+            rank, world_size, model.name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, experiment, show_progress_bar
         ))
         p.start()
         processes.append(p)
@@ -167,7 +160,7 @@ def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_sc
         p.join()
     print("All process finished")
     # Return training results
-    metrics = pd.read_csv(f"{PATH_METRICS}/{name}.csv")
+    metrics = pd.read_csv(f"{PATH_METRICS}/{model.name}.csv")
     return metrics["val_loss"].iloc[-1], sum(metrics["time"])
 
 def main():
@@ -176,7 +169,7 @@ def main():
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
     parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
-    parser.add_argument("--splits", type=int, default=1, help="Number of splits")
+    parser.add_argument("--splits", type=int, default=12, help="Number of splits")
 
     args = parser.parse_args()
 

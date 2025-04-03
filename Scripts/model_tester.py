@@ -4,7 +4,7 @@ import xarray as xr
 import torch
 
 from tqdm import tqdm
-from models import load_and_initialize
+from models import initialize_model
 from model_trainer import load_checkpoint
 from data_loader import load_data
 
@@ -14,7 +14,7 @@ PATH_RESULTS = "../Models/Results"
 
 def test(model_type, path_test, downsampling_scale):
     
-    model_dict = load_and_initialize(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale, splits=1)
+    model_dict = initialize_model(model_type=model_type, path1=path_test, downsampling_scale=downsampling_scale, splits=1)
     model_kwargs = model_dict["model_kwargs"]
     params = model_kwargs["hyperparameters"]
 
