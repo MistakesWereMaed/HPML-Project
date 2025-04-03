@@ -57,7 +57,7 @@ def get_dataset(path=None, downsampling_scale=2, splits=1):
     datasets = []
     for i in range(splits):
         start_idx = i * split_size
-        end_idx = (i + 1) * split_size if i < splits - 1 else total_time
+        end_idx = (i + 1) * split_size
         # Select the subset of the dataset
         ds_split = ds.isel(time=slice(start_idx, end_idx))
         datasets.append(ds_split)
@@ -70,6 +70,6 @@ def load_data(ds, batch_size, input_days=1, target_days=1):
 
     ds.load()
     xr_ds = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    dataloader = DataLoader(xr_ds, batch_size=batch_size, num_workers=2, pin_memory=True, persistent_workers=True)
+    dataloader = DataLoader(xr_ds, batch_size=batch_size, pin_memory=True)
 
     return dataloader
