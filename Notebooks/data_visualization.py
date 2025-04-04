@@ -40,14 +40,14 @@ def plot_height(zos, lat, lon):
 def plot_loss_and_training_time(csv_path):
     df = pd.read_csv(csv_path)
 
-    if not {'gpu_count', 'train_time', 'avg_val_loss'}.issubset(df.columns):
-        raise ValueError("CSV file must contain 'gpu_count', 'train_time', and 'avg_val_loss' columns.")
+    if not {'gpu_count', 'avg_train_time', 'avg_val_loss'}.issubset(df.columns):
+        raise ValueError("CSV file must contain 'gpu_count', 'avg_train_time', and 'avg_val_loss' columns.")
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
     # Plot Training Time by GPU Count
     gpu_counts = df['gpu_count']
-    training_times = df['train_time']
+    training_times = df['avg_train_time']
 
     ax1.bar(gpu_counts, training_times, color='skyblue')
     ax1.set_xlabel("GPU Count")

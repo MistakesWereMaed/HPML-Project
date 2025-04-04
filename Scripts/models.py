@@ -86,9 +86,8 @@ class PICPModel(nn.Module):
         u_g = self.g / self.f * dvdy
         v_g = -self.g / self.f * dudx
         # Step 3: Sum Module (Combining Data-Driven and Physics-Informed velocities)
-        with torch.autocast("cuda"):
-            u = u_g + u_prime
-            v = v_g + v_prime
+        u = u_g + u_prime
+        v = v_g + v_prime
 
         return torch.stack((u, v, ssh), dim=1)
 
@@ -106,7 +105,7 @@ class PICPModel(nn.Module):
     @staticmethod
     def load_params():
         try:
-            with open(f"{PATH_PARAMS}/PINN-Base.json", "r") as f:
+            with open(f"{PATH_PARAMS}/PINN.json", "r") as f:
                 params = json.load(f)
         except FileNotFoundError:
             params = {

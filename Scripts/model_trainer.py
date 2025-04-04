@@ -34,7 +34,11 @@ def load_checkpoint(path, model, optimizer, experiment):
 
     try:
         checkpoint = torch.load(path, map_location="cuda")
-        model.load_state_dict(checkpoint["model_state"])
+        state_dict = checkpoint["model_state"]
+        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(
+            state_dict, "module."
+        )
+        model.load_state_dict(state_dict)
         optimizer.load_state_dict(checkpoint["optimizer_state"])
         return checkpoint["epoch"] + 1, checkpoint["metrics"]
     except FileNotFoundError: return defaults
@@ -77,7 +81,7 @@ def train_chunk(rank, train_loader, model, loss_function, optimizer, show_progre
 
     return total_loss / len(train_loader)
 
-def train_epoch(rank, chunks, model, loss_function, optimizer, params, show_progress_bar=True):   
+def train_epoch(rank, chunks, model, loss_function, optimizer, show_progress_bar=True):   
     chunk_count = len(chunks)
     for chunk, i in zip(chunks, range(chunk_count)):
         # Load data for the assigned split
@@ -101,12 +105,12 @@ def train_process(rank, world_size, name, model, optimizer, loss_function, chunk
     for epoch in range(start_epoch, epochs):
         # Skip logs and metrics unless rank 0
         if rank != 0: 
-            train_epoch(rank, chunks, model, loss_function, optimizer, params, False)
+            train_epoch(rank, chunks, model, loss_function, optimizer, False)
         else:
             print(f"Starting Epoch {epoch+1}/{epochs}...")
             # Train
             start_time = time.perf_counter()
-            train_loss = train_epoch(rank, chunks, model, loss_function, optimizer, params, show_progress_bar)
+            train_loss = train_epoch(rank, chunks, model, loss_function, optimizer, show_progress_bar)
             end_time = time.perf_counter()
             # Validate
             val_loss = validate(rank, val_loader, model, loss_function, show_progress_bar)
@@ -122,23 +126,22 @@ def train_process(rank, world_size, name, model, optimizer, loss_function, chunk
     dist.destroy_process_group()
     if rank == 0: 
         pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}.csv", index=False)
-        if experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epoch, metrics)
+        if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epoch, metrics)
 
-def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_scale=2, splits=1, experiment=False, show_progress_bar=True, hyperparameters=None):
+def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_scale=2, splits=1, experiment=False, world_size=None, show_progress_bar=True, hyperparameters=None):
     # Initialize multiprocessing environment
     mp.set_start_method("spawn", force=True)
-    world_size = torch.cuda.device_count()
+    world_size = world_size if world_size is not None else torch.cuda.device_count()
     # Initialize model
     print("Initializing Model...")
     image_size = get_image_size(path_train, downsampling_scale)
     model, optimizer, loss_function, params = initialize_model(image_size, model_type, hyperparameters)
     # Unpack datasets
-    print("Loading Data...")
     train_set = get_dataset(path=path_train, downsampling_scale=downsampling_scale, splits=splits)
     val_set = get_dataset(path=path_val, downsampling_scale=downsampling_scale, splits=1)
     # Load checkpoint
     print("Loading Checkpoint...")
-    start_epoch, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{model.name}-Best.ckpt", model, optimizer, experiment)
+    start_epoch, metrics = load_checkpoint(f"{PATH_WEIGHTS}/{model.name}.ckpt", model, optimizer, experiment)
     processes = []
     # Initialize processes
     for rank in range(world_size):
