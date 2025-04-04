@@ -6,7 +6,7 @@ import torch
 
 from hyperopt import fmin, tpe, Trials
 from functools import partial
-from models import PICPModel
+from models import PICPModel, FNO2d
 from model_trainer import train
 
 PATH_TRAIN = "../Data/Processed/Train.nc"
@@ -56,6 +56,8 @@ def main():
     match model_type:
         case "PINN":
             model_class = PICPModel
+        case "FNO":
+            model_class = FNO2d
         case _:
             raise ValueError(f"Unknown model type")
     # Get hyperparameter space and run trials

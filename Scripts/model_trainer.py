@@ -126,7 +126,7 @@ def train_process(rank, world_size, name, model, optimizer, loss_function, chunk
     dist.destroy_process_group()
     if rank == 0: 
         pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}.csv", index=False)
-        if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epoch, metrics)
+        if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epochs, metrics)
 
 def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_scale=2, splits=1, experiment=False, world_size=None, show_progress_bar=True, hyperparameters=None):
     # Initialize multiprocessing environment
