@@ -4,15 +4,19 @@ import torch
 
 from torch.utils.data import Dataset, DataLoader
 
+BATCH_SIZE = 1
+INPUT_DAYS = 7
+TARGET_DAYS = 15
+
 class XarrayDataset(Dataset):
-    def __init__(self, ds, input_vars, target_vars, input_days=7, target_days=15):
+    def __init__(self, ds, input_vars, target_vars):
         if ds["time"].dtype != np.int64:
             ds["time"] = ds["time"].dt.dayofyear
         self.ds = ds
         self.input_vars = input_vars
         self.target_vars = target_vars
-        self.input_days = input_days
-        self.target_days = target_days
+        self.input_days = INPUT_DAYS
+        self.target_days = TARGET_DAYS
 
     def __len__(self):
         return self.ds.sizes["time"] - (self.input_days + self.target_days - 1)
@@ -36,6 +40,16 @@ class XarrayDataset(Dataset):
         y_tensor = torch.tensor(y, dtype=torch.float32)
 
         return x_tensor, y_tensor
+    
+def get_image_size(path, downsampling_scale=2):
+    ds = xr.open_dataset(path, chunks="auto")
+    if downsampling_scale >= 1:
+        ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
+    # Image size
+    lat_size = ds.sizes.get("latitude", 0)
+    lon_size = ds.sizes.get("longitude", 0)
+    ds.close()
+    return (lat_size, lon_size)
 
 def get_dataset(path=None, downsampling_scale=2, splits=1):
     # Load dataset
@@ -44,32 +58,29 @@ def get_dataset(path=None, downsampling_scale=2, splits=1):
     # Apply downsampling
     if downsampling_scale >= 1:
         ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
-    # Image size
-    lat_size = ds.sizes.get("latitude", 0)
-    lon_size = ds.sizes.get("longitude", 0)
     # Skip splitting for single split
     if splits == 1:
-        return ds, (lat_size, lon_size)
+        return ds
     # Split dataset along the "time" dimension
     total_time = ds.sizes["time"]
     split_size = total_time // splits
     # Split data into chunks
-    datasets = []
+    chunks = []
     for i in range(splits):
         start_idx = i * split_size
-        end_idx = (i + 1) * split_size if i < splits - 1 else total_time
+        end_idx = (i + 1) * split_size
         # Select the subset of the dataset
-        ds_split = ds.isel(time=slice(start_idx, end_idx))
-        datasets.append(ds_split)
+        chunk = ds.isel(time=slice(start_idx, end_idx))
+        chunks.append(chunk)
 
-    return datasets, (lat_size, lon_size)
+    return chunks
 
-def load_data(ds, batch_size, input_days=1, target_days=1):
+def load_data(ds):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
 
     ds.load()
-    xr_ds = XarrayDataset(ds, input_vars, target_vars, input_days, target_days)
-    dataloader = DataLoader(xr_ds, batch_size=batch_size, num_workers=2, pin_memory=True, prefetch_factor=2, persistent_workers=True)
+    xr_ds = XarrayDataset(ds, input_vars, target_vars)
+    dataloader = DataLoader(xr_ds, batch_size=BATCH_SIZE, pin_memory=True)
 
     return dataloader

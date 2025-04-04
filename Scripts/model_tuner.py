@@ -9,7 +9,7 @@ from functools import partial
 from models import PICPModel
 from model_trainer import train
 
-PATH_VAL = "../Data/Processed/Train.nc"
+PATH_TRAIN = "../Data/Processed/Train.nc"
 PATH_TEST = "../Data/Processed/Val.nc"
 PATH_PARAMS = "../Models/Params"
 
@@ -17,7 +17,7 @@ def train_wrapper(model_type, params, epochs, downsampling_scale, splits):
     print("Training...")
     val_loss, _ = train(
         model_type=model_type, epochs=epochs,
-        path_train=PATH_VAL, path_val=PATH_TEST, downsampling_scale=downsampling_scale, splits=splits,
+        path_train=PATH_TRAIN, path_val=PATH_TEST, downsampling_scale=downsampling_scale, splits=splits,
         experiment=True, show_progress_bar=False, hyperparameters=params
     )
     
@@ -39,7 +39,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
     parser.add_argument("--model", type=str, required=True, help="Type of model")
     parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
-    parser.add_argument("--splits", type=int, default=1, help="Number of splits")
+    parser.add_argument("--splits", type=int, default=12, help="Number of splits")
     parser.add_argument("--trials", type=int, default=2, help="Number of trials")
     parser.add_argument("--downsampling", type=int, default=2, help="Downsampling reduction scale")
 
@@ -49,6 +49,9 @@ def main():
     splits = args.splits
     trials = args.trials
     downsampling_scale = args.downsampling
+
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12345'
     # Select model
     match model_type:
         case "PINN":
