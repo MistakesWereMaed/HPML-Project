@@ -18,7 +18,7 @@ TARGET_DAYS = 15
 def test(model_type, path_test, downsampling_scale):
     
     image_size = get_image_size(path_test, downsampling_scale)
-    model, optimizer, loss_function, _ = initialize_model(image_size, model_type)
+    model, optimizer, loss_function = initialize_model(image_size, model_type)
     load_checkpoint(f"{PATH_WEIGHTS}/{model.name}.ckpt", model, optimizer, experiment=False)
     
     test_set = get_dataset(path=path_test, downsampling_scale=downsampling_scale, splits=1)
@@ -44,8 +44,8 @@ def test(model_type, path_test, downsampling_scale):
                 day_loss = loss_function(predictions[:, :, day], targets[:, :, day])
                 daily_losses[day] += day_loss.item()
             
-            all_predictions.append(predictions.cpu())
-            all_targets.append(targets.cpu())
+                all_predictions.append(predictions.cpu())
+                all_targets.append(targets.cpu())
             
             progress_bar.set_postfix(loss=np.mean(daily_losses) / i)
 
@@ -68,19 +68,19 @@ def save_results(model_type, loss, predictions, targets):
     num_samples, num_channels, num_time_steps, lat_size, lon_size = all_predictions_np.shape
     # Create an xarray dataset with explicit dimensions
     ds = xr.Dataset(
-    {
-        "loss": (("lead_time",), loss.astype(np.float32)),
-        "predictions": (("sample", "channel", "time", "latitude", "longitude"), all_predictions_np),
-        "targets": (("sample", "channel", "time", "latitude", "longitude"), all_targets_np),
-    },
-    coords={
-        "sample": np.arange(num_samples),
-        "channel": np.arange(num_channels),
-        "time": np.arange(num_time_steps),
-        "latitude": np.linspace(-90, 90, lat_size),
-        "longitude": np.linspace(-180, 180, lon_size),
-    },
-)
+        {
+            "loss": (("lead_time",), loss.astype(np.float32)),
+            "predictions": (("sample", "channel", "time", "latitude", "longitude"), all_predictions_np),
+            "targets": (("sample", "channel", "time", "latitude", "longitude"), all_targets_np),
+        },
+        coords={
+            "sample": np.arange(num_samples),
+            "channel": np.arange(num_channels),
+            "time": np.arange(num_time_steps),
+            "latitude": np.linspace(65, 90, lat_size),
+            "longitude": np.linspace(-180, 180, lon_size),
+        },
+    )
     
     ds.to_netcdf(results_path)
 

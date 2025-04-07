@@ -5,6 +5,9 @@ import torch.fft
 import torch.optim as optim
 import torch.nn.functional as F
 
+from torch_geometric.nn import GCNConv
+from torch_geometric.utils import grid
+
 from linformer import LinformerSelfAttention
 from hyperopt import hp
 
@@ -21,6 +24,8 @@ def initialize_model(image_size, model_type="PINN", hyperparameters=None):
             model_class = PICPModel
         case "FNO":
             model_class = FNO2d
+        case "GNN":
+            model_class = GNNSeq2Seq
         case _:
             raise ValueError(f"Unknown model type")
     # Load params
@@ -30,7 +35,7 @@ def initialize_model(image_size, model_type="PINN", hyperparameters=None):
     loss_function = nn.SmoothL1Loss(beta=1.0)
     optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
 
-    return model, optimizer, loss_function, params
+    return model, optimizer, loss_function
 
 ###### PINN ######
 def calculate_seq_length(image_size, kernel_size, padding=0, stride=1):
@@ -125,7 +130,73 @@ class PICPModel(nn.Module):
 
 
 ###### GNN ######
+class GNNSeq2Seq(nn.Module):
+    def __init__(self, image_size, **kwargs):
+        super().__init__()
+        hidden_dim = int(kwargs["hidden_dim"])
+        num_gnn_layers = int(kwargs["num_gnn_layers"])
 
+        height, width = image_size
+        in_channels = NUM_FEATURES * INPUT_DAYS
+        out_channels = NUM_FEATURES * TARGET_DAYS
+        self.H, self.W = height, width
+        self.n_nodes = height * width
+        self.dropout = 0.1
+
+        # Define edge_index
+        edge_index = grid(height, width)[0]
+
+        self.input_proj = nn.Linear(in_channels, hidden_dim)
+        self.gnn_layers = nn.ModuleList([
+            GCNConv(hidden_dim, hidden_dim) for _ in range(num_gnn_layers)
+        ])
+        self.output_proj = nn.Linear(hidden_dim, out_channels)
+        self.name = "GNN"
+        self.edge_index = edge_index
+
+    def forward(self, x):
+        device = x.device
+        edge_index = self.edge_index.to(device)  # Move edge_index to the correct device
+
+        B, C, H, W = x.shape
+        x = x.reshape(B, C, -1).permute(0, 2, 1)  # [B, N, C]
+
+        out = []
+        for xb in x:  # xb: [N, C]
+            h = self.input_proj(xb)
+            for conv in self.gnn_layers:
+                h = conv(h, edge_index)
+                h = F.relu(h)
+                h = F.dropout(h, p=self.dropout, training=self.training)
+            outb = self.output_proj(h)  # [N, C_out]
+            out.append(outb)
+
+        out = torch.stack(out, dim=0)
+        out = out.permute(0, 2, 1).reshape(B, -1, H, W)
+
+        u, v, ssh = torch.chunk(out, chunks=3, dim=1)
+        return torch.stack((u, v, ssh), dim=1)
+    
+    @staticmethod
+    def get_hyperparam_space():
+        return {
+            "hidden_dim": hp.quniform("hidden_dim", 32, 256, 32),
+            "num_gnn_layers": hp.choice("num_gnn_layers", [2, 3, 4]),
+            "learning_rate": hp.loguniform("learning_rate", -6, -3),
+        }
+    
+    @staticmethod
+    def load_params():
+        try:
+            with open(f"{PATH_PARAMS}/GNN.json", "r") as f:
+                params = json.load(f)
+        except FileNotFoundError:
+            params = {
+                "hidden_dim": 64,
+                "num_gnn_layers": 3,
+                "learning_rate": 1e-4,
+            }
+        return params
 
 
 ###### FNO ######
@@ -164,6 +235,7 @@ class FNO2d(nn.Module):
         self.width = int(kwargs["fno_width"])
         self.depth = int(kwargs["num_fno_layers"])
         self.mlp_hidden_dim = int(kwargs["mlp_hidden_dim"])
+        self.dropout = nn.Dropout(0.1)
 
         self.fc0 = nn.Conv2d(in_channels, self.width, kernel_size=1)
 
@@ -195,9 +267,11 @@ class FNO2d(nn.Module):
             x1 = conv(x)
             x2 = w(x)
             x = torch.relu(x1 + x2)
+            x = self.dropout(x)
 
         x = x.permute(0, 2, 3, 1)  # [B, H, W, width]
         x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
         x = self.fc2(x)
         x = x.permute(0, 3, 1, 2)  # [B, out_channels, H, W]
 

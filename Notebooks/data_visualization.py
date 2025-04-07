@@ -111,3 +111,48 @@ def plot_accuracy_over_time(nc_path):
 
     # Close dataset
     ds.close()
+
+def plot_currents_comparison(path, sample=0, time=0, arrow_step=10, arrow_scale=0.1):
+    ds = xr.open_dataset(path)
+    lat = ds.coords["latitude"].values
+    lon = ds.coords["longitude"].values
+    lon_grid, lat_grid = np.meshgrid(lon, lat)
+
+    # Extract u and v for predictions and targets
+    u_pred = ds["predictions"].sel(sample=sample, channel=0, time=time)
+    v_pred = ds["predictions"].sel(sample=sample, channel=1, time=time)
+
+    u_tgt = ds["targets"].sel(sample=sample, channel=0, time=time)
+    v_tgt = ds["targets"].sel(sample=sample, channel=1, time=time)
+
+    # Intensity (magnitude of vector field)
+    intensity_pred = np.sqrt(u_pred**2 + v_pred**2)
+    intensity_tgt = np.sqrt(u_tgt**2 + v_tgt**2)
+
+    # Setup the plot
+    fig, axs = plt.subplots(2, 1, figsize=(18, 8), subplot_kw={'projection': ccrs.PlateCarree()})
+    
+    for ax, u, v, intensity, title in zip(
+        axs, 
+        [u_tgt, u_pred], 
+        [v_tgt, v_pred], 
+        [intensity_tgt, intensity_pred], 
+        ["Ground Truth Currents", "Predicted Currents"]
+    ):
+        u_scaled = u * arrow_scale
+        v_scaled = v * arrow_scale
+        skip = (slice(None, None, arrow_step), slice(None, None, arrow_step))
+        
+        im = ax.pcolormesh(lon_grid, lat_grid, intensity, cmap='Blues')
+        ax.quiver(lon_grid[skip], lat_grid[skip], u_scaled[skip], v_scaled[skip], 
+                  color='black', scale=2, width=0.003, headwidth=4)
+
+        ax.set_title(title)
+        ax.coastlines()
+        ax.add_feature(cfeature.BORDERS, linestyle=':')
+        ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='dotted')
+        
+    plt.colorbar(im, ax=ax, orientation='horizontal', pad=0.05, label='Current Intensity')
+    plt.suptitle(f"Sample {sample} | Time Step {time}", fontsize=16)
+    plt.tight_layout()
+    plt.show()

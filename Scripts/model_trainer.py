@@ -2,7 +2,6 @@ import os
 import time
 import argparse
 import pandas as pd
-import contextlib
 import torch
 import torch.multiprocessing as mp
 import torch.distributed as dist
@@ -95,7 +94,7 @@ def train_epoch(rank, chunks, model, loss_function, optimizer, show_progress_bar
 
     return train_loss
 
-def train_process(rank, world_size, name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, experiment, show_progress_bar):
+def train_process(rank, world_size, name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, experiment, show_progress_bar):
     # Initialize DDP
     if rank == 0: print("Initializing DDP...\n")
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
@@ -135,7 +134,7 @@ def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_sc
     # Initialize model
     print("Initializing Model...")
     image_size = get_image_size(path_train, downsampling_scale)
-    model, optimizer, loss_function, params = initialize_model(image_size, model_type, hyperparameters)
+    model, optimizer, loss_function = initialize_model(image_size, model_type, hyperparameters)
     # Unpack datasets
     train_set = get_dataset(path=path_train, downsampling_scale=downsampling_scale, splits=splits)
     val_set = get_dataset(path=path_val, downsampling_scale=downsampling_scale, splits=1)
@@ -154,7 +153,7 @@ def train(model_type, epochs=10, path_train=None, path_val=None, downsampling_sc
         chunks = train_set[start_idx:end_idx]
         # Start processes
         p = mp.Process(target=train_process, args=(
-            rank, world_size, model.name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, params, experiment, show_progress_bar
+            rank, world_size, model.name, model, optimizer, loss_function, chunks, val_set, epochs, start_epoch, metrics, experiment, show_progress_bar
         ))
         p.start()
         processes.append(p)
