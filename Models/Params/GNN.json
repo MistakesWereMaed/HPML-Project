@@ -1,1 +1,1 @@
-{"hidden_dim": 224.0, "learning_rate": 0.0043689400046587525, "num_gnn_layers": 2}
+{"batch_size": 8, "hidden_dim": 64.0, "learning_rate": 0.0043689400046587525, "num_gnn_layers": 1}

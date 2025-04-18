@@ -4,10 +4,6 @@ import torch
 
 from torch.utils.data import Dataset, DataLoader
 
-BATCH_SIZE = 1
-INPUT_DAYS = 7
-TARGET_DAYS = 15
-
 class XarrayDataset(Dataset):
     def __init__(self, ds, input_vars, target_vars):
         if ds["time"].dtype != np.int64:
@@ -15,26 +11,17 @@ class XarrayDataset(Dataset):
         self.ds = ds
         self.input_vars = input_vars
         self.target_vars = target_vars
-        self.input_days = INPUT_DAYS
-        self.target_days = TARGET_DAYS
 
     def __len__(self):
-        return self.ds.sizes["time"] - (self.input_days + self.target_days - 1)
+        return self.ds.sizes["time"] - 1
 
     def __getitem__(self, idx):
-        # Select past `input_days` timesteps for input variables
-        x_list = []
-        for var in self.input_vars:
-            x_list.append(self.ds[var].isel(time=slice(idx, idx + self.input_days)).values)
-        x = np.stack(x_list, axis=0)  
-        # Select next `target_days` timesteps for target variables
-        y_list = []
-        for var in self.target_vars:
-            y_list.append(self.ds[var].isel(time=slice(idx + self.input_days, idx + self.input_days + self.target_days)).values)
-        y = np.stack(y_list, axis=0)
-        # Reshape: Merge time into the channel dimension (for Conv2D)
-        x = x.transpose(1, 0, 2, 3)
-        x = x.reshape(-1, x.shape[2], x.shape[3])
+        # Input: stack input variables along the channel dimension
+        x = self.ds[self.input_vars].isel(time=idx).to_array().values  # shape: [C_in, H, W]
+
+        # Target: stack target variables along the channel dimension
+        y = self.ds[self.target_vars].isel(time=idx + 1).to_array().values  # shape: [C_out, H, W]
+
         # Convert to tensors
         x_tensor = torch.tensor(x, dtype=torch.float32)
         y_tensor = torch.tensor(y, dtype=torch.float32)
@@ -75,12 +62,12 @@ def get_dataset(path=None, downsampling_scale=2, splits=1):
 
     return chunks
 
-def load_data(ds):
+def load_data(ds, batch_size):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
 
     ds.load()
     xr_ds = XarrayDataset(ds, input_vars, target_vars)
-    dataloader = DataLoader(xr_ds, batch_size=BATCH_SIZE, pin_memory=True)
+    dataloader = DataLoader(xr_ds, batch_size=batch_size, pin_memory=True)
 
     return dataloader
