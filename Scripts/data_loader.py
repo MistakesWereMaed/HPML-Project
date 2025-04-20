@@ -1,32 +1,19 @@
 import xarray as xr
-import numpy as np
+from tqdm import tqdm
 import torch
 
 from torch.utils.data import Dataset, DataLoader
 
-class XarrayDataset(Dataset):
-    def __init__(self, ds, input_vars, target_vars):
-        if ds["time"].dtype != np.int64:
-            ds["time"] = ds["time"].dt.dayofyear
-        self.ds = ds
-        self.input_vars = input_vars
-        self.target_vars = target_vars
+class XarrayTensorDataset(Dataset):
+    def __init__(self, x_tensor, y_tensor):
+        self.x = x_tensor
+        self.y = y_tensor
 
     def __len__(self):
-        return self.ds.sizes["time"] - 1
+        return self.x.shape[0]
 
     def __getitem__(self, idx):
-        # Input: stack input variables along the channel dimension
-        x = self.ds[self.input_vars].isel(time=idx).to_array().values  # shape: [C_in, H, W]
-
-        # Target: stack target variables along the channel dimension
-        y = self.ds[self.target_vars].isel(time=idx + 1).to_array().values  # shape: [C_out, H, W]
-
-        # Convert to tensors
-        x_tensor = torch.tensor(x, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32)
-
-        return x_tensor, y_tensor
+        return self.x[idx], self.y[idx]
     
 def get_image_size(path, downsampling_scale=2):
     ds = xr.open_dataset(path, chunks="auto")
@@ -38,36 +25,48 @@ def get_image_size(path, downsampling_scale=2):
     ds.close()
     return (lat_size, lon_size)
 
-def get_dataset(path=None, downsampling_scale=2, splits=1):
-    # Load dataset
-    ds = xr.open_dataset(path)
-    ds = ds.chunk({"time": ds.sizes["time"] // splits})
-    # Apply downsampling
-    if downsampling_scale >= 1:
-        ds = ds.interp(latitude=ds.latitude[::downsampling_scale], longitude=ds.longitude[::downsampling_scale], method="nearest")
-    # Skip splitting for single split
-    if splits == 1:
-        return ds
-    # Split dataset along the "time" dimension
-    total_time = ds.sizes["time"]
-    split_size = total_time // splits
-    # Split data into chunks
-    chunks = []
-    for i in range(splits):
-        start_idx = i * split_size
-        end_idx = (i + 1) * split_size
-        # Select the subset of the dataset
-        chunk = ds.isel(time=slice(start_idx, end_idx))
-        chunks.append(chunk)
-
-    return chunks
-
-def load_data(ds, batch_size):
+def load_data(rank=0, world_size=1, path=None, batch_size=8, downsampling_scale=2, shuffle=False):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
+    
+    # Load and preprocess dataset
+    ds = xr.open_dataset(path)
+    ds = ds.chunk({"time": ds.sizes["time"] // world_size})
 
-    ds.load()
-    xr_ds = XarrayDataset(ds, input_vars, target_vars)
-    dataloader = DataLoader(xr_ds, batch_size=batch_size, pin_memory=True)
+    if downsampling_scale >= 1:
+        ds = ds.interp(
+            latitude=ds.latitude[::downsampling_scale],
+            longitude=ds.longitude[::downsampling_scale],
+            method="nearest"
+        )
+
+    total_time = ds.sizes["time"]
+    split_size = total_time // world_size
+
+    start_idx = rank * split_size
+    end_idx = (rank + 1) * split_size if rank < world_size - 1 else total_time
+    
+    chunk = ds.isel(time=slice(start_idx, end_idx))
+    chunk.load()
+
+    # Preload tensors to GPU
+    x_list, y_list = [], []
+    time_steps = chunk.sizes["time"] - 1
+    for i in tqdm(range(time_steps), desc=f"[Rank {rank}] Loading", leave=False):
+        x = chunk[input_vars].isel(time=i).to_array().values
+        y = chunk[target_vars].isel(time=i + 1).to_array().values
+        
+        x_tensor = torch.tensor(x, dtype=torch.float32)
+        y_tensor = torch.tensor(y, dtype=torch.float32)
+
+        x_list.append(x_tensor)
+        y_list.append(y_tensor)
+
+    x_all = torch.stack(x_list).to(rank, non_blocking=True)
+    y_all = torch.stack(y_list).to(rank, non_blocking=True)
+
+    # Dataset with preloaded tensors
+    tensor_dataset = XarrayTensorDataset(x_all, y_all)
+    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, num_workers=2, persistent_workers=True, shuffle=shuffle)
 
     return dataloader
