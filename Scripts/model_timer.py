@@ -3,16 +3,25 @@ import argparse
 import torch
 import os
 
-from model_trainer import train
-
-PATH_TRAIN = "../Data/Processed/Train.nc"
-PATH_VAL = "../Data/Processed/Val.nc"
+PATH_METRICS = "../Models/Metrics"
 PATH_TIMINGS = "../Models/Timings"
 
-import argparse
-import os
-import csv
-import torch
+def read_metrics_from_csv(model_type, gpu_count):
+    csv_path = os.path.join(PATH_METRICS, f"{model_type}_{gpu_count}.csv")
+    val_losses = []
+    train_times = []
+
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Expected metrics CSV not found: {csv_path}")
+
+    with open(csv_path, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if "val_loss" in row and "time" in row:
+                val_losses.append(float(row["val_loss"]))
+                train_times.append(float(row["time"]))
+
+    return val_losses, train_times
 
 def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")
@@ -27,47 +36,36 @@ def main():
     trials = args.trials
     downsampling_scale = args.downsampling
 
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12345'
-
-    num_gpus = torch.cuda.device_count()
-    print(f"Detected {num_gpus} GPUs.")
-
     os.makedirs(PATH_TIMINGS, exist_ok=True)
-    csv_path = f"{PATH_TIMINGS}/{model_type}.csv"
+    timing_csv = f"{PATH_TIMINGS}/{model_type}.csv"
 
-    # Write CSV header
-    with open(csv_path, "w", newline="") as f:
+    with open(timing_csv, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["gpu_count", "avg_train_time", "avg_val_loss"])
 
-    # Loop through each GPU count
+    num_gpus = torch.cuda.device_count()
+
     for gpu_count in range(1, num_gpus + 1):
         print(f"\nTraining with {gpu_count} GPU(s)...")
-        total_time = 0
-        total_val_loss = 0
-
+        
         for trial in range(trials):
-            val_loss, train_time = train(
-                model_type=model_type, epochs=epochs, 
-                path_train=PATH_TRAIN, path_val=PATH_VAL, downsampling_scale=downsampling_scale, 
-                experiment=True, world_size=gpu_count, show_progress_bar=True
-            )
+            os.system(f"./run_axonn_training.sh -p {gpu_count} -m {model_type} -e {epochs}")
 
-            total_time += train_time
-            total_val_loss += val_loss
-            torch.cuda.empty_cache()
+        # Parse results from generated metrics file
+        val_losses, train_times = read_metrics_from_csv(model_type, gpu_count)
 
-        avg_time = total_time / trials / epochs
-        avg_val_loss = total_val_loss / trials
+        if len(val_losses) < epochs * trials or len(train_times) < epochs * trials:
+            print(f"Warning: Expected {epochs * trials} entries, found {len(val_losses)}.")
 
-        print(f"[{gpu_count} GPU(s)] Average time per epoch: {avg_time:.2f} seconds")
-        print(f"[{gpu_count} GPU(s)] Average validation loss: {avg_val_loss:.4f}")
+        val_loss = val_losses[-1]
+        avg_train_time = sum(train_times) / len(train_times)
 
-        # Append results to CSV
-        with open(csv_path, "a", newline="") as f:
+        print(f"[{gpu_count} GPU(s)] Avg time per epoch: {avg_train_time:.2f} s")
+        print(f"[{gpu_count} GPU(s)] Avg val loss: {val_loss:.4f}")
+
+        with open(timing_csv, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([gpu_count, avg_time, avg_val_loss])
+            writer.writerow([gpu_count, avg_train_time, val_loss])
 
 if __name__ == "__main__":
     main()

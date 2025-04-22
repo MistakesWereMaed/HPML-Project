@@ -1,8 +1,9 @@
 import xarray as xr
-from tqdm import tqdm
 import torch
 
-from torch.utils.data import Dataset, DataLoader
+from tqdm import tqdm
+from axonn import axonn as ax
+from torch.utils.data import Dataset
 
 class XarrayTensorDataset(Dataset):
     def __init__(self, x_tensor, y_tensor):
@@ -62,11 +63,15 @@ def load_data(rank=0, world_size=1, path=None, batch_size=8, downsampling_scale=
         x_list.append(x_tensor)
         y_list.append(y_tensor)
 
-    x_all = torch.stack(x_list).to(rank, non_blocking=True)
-    y_all = torch.stack(y_list).to(rank, non_blocking=True)
+    x_all = torch.stack(x_list).to(rank)
+    y_all = torch.stack(y_list).to(rank)
 
     # Dataset with preloaded tensors
     tensor_dataset = XarrayTensorDataset(x_all, y_all)
-    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, num_workers=2, persistent_workers=True, shuffle=shuffle)
+    dataloader = ax.create_dataloader(
+        tensor_dataset,
+        global_batch_size=batch_size * world_size,
+        num_workers=0
+    )
 
     return dataloader
