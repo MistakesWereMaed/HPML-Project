@@ -155,7 +155,7 @@ def train(model_type, epochs, path_train, path_val, downsampling_scale=2, experi
             print("Training Complete\n")
             print(f"Final Val Loss: {val_loss:.4f} - Training Time: {total_time:.1f} seconds")
             pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}_{world_size}.csv", index=False)
-            #if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epochs, metrics)
+            # if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epochs, metrics)
 
             return val_loss, total_time
         return 0, 0
@@ -169,7 +169,7 @@ def train(model_type, epochs, path_train, path_val, downsampling_scale=2, experi
         #if rank == 0: val_loader._iterator._shutdown_workers()
         #train_loader._iterator._shutdown_workers()
         dist.destroy_process_group()
-        #torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
 def main():
     parser = argparse.ArgumentParser(description="Train a model with specific parameters.")

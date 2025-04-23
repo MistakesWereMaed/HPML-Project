@@ -49,7 +49,7 @@ def main():
         print(f"\nTraining with {gpu_count} GPU(s)...")
         
         for trial in range(trials):
-            os.system(f"./run_axonn_training.sh -p {gpu_count} -m {model_type} -e {epochs}")
+            os.system(f"bash launch.sh -p {gpu_count} -m {model_type} -e {epochs}")
 
         # Parse results from generated metrics file
         val_losses, train_times = read_metrics_from_csv(model_type, gpu_count)
