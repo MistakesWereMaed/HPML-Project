@@ -42,8 +42,8 @@ def test(model_type, path_test, downsampling_scale):
 
     # Initialize model and other components
     image_size = get_image_size(path_test, downsampling_scale)
-    model, optimizer, loss_function, _ = initialize_model(image_size, model_type)
-    load_checkpoint(f"{PATH_WEIGHTS}/{model.name}.ckpt", model, optimizer, experiment=False)
+    model, _, loss_function, _, _ = initialize_model(image_size, model_type)
+    load_checkpoint(f"{PATH_WEIGHTS}/{model.name}.ckpt", model, experiment=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
