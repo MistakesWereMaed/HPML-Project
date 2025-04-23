@@ -25,7 +25,7 @@ def get_image_size(path, downsampling_scale=2):
     ds.close()
     return (lat_size, lon_size)
 
-def load_data(rank=0, world_size=1, path=None, batch_size=8, downsampling_scale=2, shuffle=False):
+def load_data(rank=0, world_size=1, path=None, batch_size=8, downsampling_scale=2):
     input_vars = ['zos', 'u10', 'v10']
     target_vars = ['uo', 'vo', 'zos']
     
@@ -67,6 +67,6 @@ def load_data(rank=0, world_size=1, path=None, batch_size=8, downsampling_scale=
 
     # Dataset with preloaded tensors
     tensor_dataset = XarrayTensorDataset(x_all, y_all)
-    dataloader = DataLoader(tensor_dataset, batch_size=batch_size, num_workers=2, persistent_workers=True, shuffle=shuffle)
+    dataloader = DataLoader(tensor_dataset, batch_size=batch_size)
 
     return dataloader

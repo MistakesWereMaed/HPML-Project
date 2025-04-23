@@ -33,7 +33,7 @@ def initialize_model(image_size, model_type="PINN", hyperparameters=None):
     loss_function = nn.SmoothL1Loss(beta=1.0)
     optimizer = optim.Adam(model.parameters(), lr=params["learning_rate"])
 
-    return model, optimizer, loss_function, params["batch_size"]
+    return model, optimizer, loss_function, params["batch_size"], params["learning_rate"]
 
 ###### PINN ######
 def calculate_seq_length(image_size, kernel_size, padding=0, stride=1):
