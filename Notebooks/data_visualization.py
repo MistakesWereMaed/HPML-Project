@@ -37,122 +37,102 @@ def plot_height(zos, lat, lon):
     plt.title('Sea Level Height')
     plt.show()
 
-def plot_loss_and_training_time(csv_path):
-    df = pd.read_csv(csv_path)
+def plot_model_metrics_linegraph(pinn_path, fno_path, gnn_path):
+    # Load all three CSVs
+    df_pinn = pd.read_csv(pinn_path)
+    df_fno = pd.read_csv(fno_path)
+    df_gnn = pd.read_csv(gnn_path)
 
-    if not {'gpu_count', 'avg_train_time', 'avg_val_loss'}.issubset(df.columns):
-        raise ValueError("CSV file must contain 'gpu_count', 'avg_train_time', and 'avg_val_loss' columns.")
+    # Check columns
+    for df, name in zip([df_pinn, df_fno, df_gnn], ["PINN", "FNO", "GNN"]):
+        if not {'gpu_count', 'avg_train_time', 'avg_val_loss'}.issubset(df.columns):
+            raise ValueError(f"{name} CSV must contain 'gpu_count', 'avg_train_time', and 'avg_val_loss'.")
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
 
-    # Plot Training Time by GPU Count
-    gpu_counts = df['gpu_count']
-    training_times = df['avg_train_time']
-
-    ax1.bar(gpu_counts, training_times, color='skyblue')
+    # Plot: Training Time
+    ax1.plot(df_pinn['gpu_count'], df_pinn['avg_train_time'], marker='o', label='PINN')
+    ax1.plot(df_fno['gpu_count'], df_fno['avg_train_time'], marker='o', label='FNO')
+    ax1.plot(df_gnn['gpu_count'], df_gnn['avg_train_time'], marker='o', label='GNN')
     ax1.set_xlabel("GPU Count")
     ax1.set_ylabel("Training Time (seconds)")
     ax1.set_title("Training Time by GPU Count")
-    ax1.set_xticks(gpu_counts)
+    ax1.legend()
+    ax1.grid(True)
 
-    # Plot Validation Loss by GPU Count
-    val_losses = df['avg_val_loss']
-    
-    ax2.bar(gpu_counts, val_losses, color='orange')
+    # Plot: Validation Loss
+    ax2.plot(df_pinn['gpu_count'], df_pinn['avg_val_loss'], marker='o', label='PINN')
+    ax2.plot(df_fno['gpu_count'], df_fno['avg_val_loss'], marker='o', label='FNO')
+    ax2.plot(df_gnn['gpu_count'], df_gnn['avg_val_loss'], marker='o', label='GNN')
     ax2.set_xlabel("GPU Count")
     ax2.set_ylabel("Validation Loss")
     ax2.set_title("Validation Loss by GPU Count")
-    ax2.set_xticks(gpu_counts)
+    ax2.legend()
+    ax2.grid(True)
 
     plt.tight_layout()
     plt.show()
 
-def plot_loss_history(csv_path):
-    df = pd.read_csv(csv_path)
-    # Create a figure with 2 subplots (1 row, 2 columns)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+def plot_all_loss_histories(pinn_path, fno_path, gnn_path):
+    # Load the CSV files
+    df_pinn = pd.read_csv(pinn_path)
+    df_fno = pd.read_csv(fno_path)
+    df_gnn = pd.read_csv(gnn_path)
 
-    # Plot Train Loss
-    ax1.plot(df['epoch'] + 1, df['train_loss'], label='Train Loss', marker='o')
+    # Create a figure with 2 subplots (Training Loss, Validation Loss)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
+
+    # Plot Training Loss
+    ax1.plot(df_pinn['epoch'] + 1, df_pinn['train_loss'], label='PINN', marker='o')
+    ax1.plot(df_fno['epoch'] + 1, df_fno['train_loss'], label='FNO', marker='s')
+    ax1.plot(df_gnn['epoch'] + 1, df_gnn['train_loss'], label='GNN', marker='^')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
     ax1.set_title('Training Loss History')
     ax1.grid()
-    
+    ax1.legend()
+
     # Plot Validation Loss
-    ax2.plot(df['epoch'] + 1, df['val_loss'], label='Validation Loss', marker='s')
+    ax2.plot(df_pinn['epoch'] + 1, df_pinn['val_loss'], label='PINN', marker='o')
+    ax2.plot(df_fno['epoch'] + 1, df_fno['val_loss'], label='FNO', marker='s')
+    ax2.plot(df_gnn['epoch'] + 1, df_gnn['val_loss'], label='GNN', marker='^')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Loss')
     ax2.set_title('Validation Loss History')
     ax2.grid()
+    ax2.legend()
 
-    # Display the plots
     plt.tight_layout()
     plt.show()
 
-def plot_accuracy_over_time(nc_path):
-    # Load NetCDF file using xarray
-    ds = xr.open_dataset(nc_path)
+def plot_all_accuracy_over_time(pinn_path, fno_path, gnn_path):
+    # Load NetCDF files using xarray
+    ds_pinn = xr.open_dataset(pinn_path)
+    ds_fno = xr.open_dataset(fno_path)
+    ds_gnn = xr.open_dataset(gnn_path)
 
-    # Extract loss values (assuming they are stored under the "loss" variable)
-    loss = ds["loss"].values
+    # Extract loss values
+    loss_pinn = ds_pinn["loss"].values
+    loss_fno = ds_fno["loss"].values
+    loss_gnn = ds_gnn["loss"].values
 
     # Generate x-axis as days (assuming each entry corresponds to a day)
-    days = np.arange(1, len(loss) + 1)
+    days = np.arange(1, len(loss_pinn) + 1)
 
     # Plot
-    plt.figure(figsize=(8, 5))
-    plt.plot(days, loss, marker='o', linestyle='-')
+    plt.figure(figsize=(6, 6))
+    plt.plot(days, loss_pinn, label="PINN", marker='o', linestyle='-')
+    plt.plot(days, loss_fno, label="FNO", marker='s', linestyle='--')
+    plt.plot(days, loss_gnn, label="GNN", marker='^', linestyle='-.')
     plt.xlabel("Prediction Lead Time (Days)")
     plt.ylabel("Loss")
     plt.title("Model Loss Over Prediction Lead Time")
     plt.grid(True)
-    plt.show()
-
-    # Close dataset
-    ds.close()
-
-def plot_currents_comparison(path, sample=0, time=0, arrow_step=10, arrow_scale=0.1):
-    ds = xr.open_dataset(path)
-    lat = ds.coords["latitude"].values
-    lon = ds.coords["longitude"].values
-    lon_grid, lat_grid = np.meshgrid(lon, lat)
-
-    # Extract u and v for predictions and targets
-    u_pred = ds["predictions"].sel(sample=sample, channel=0, time=time)
-    v_pred = ds["predictions"].sel(sample=sample, channel=1, time=time)
-
-    u_tgt = ds["targets"].sel(sample=sample, channel=0, time=time)
-    v_tgt = ds["targets"].sel(sample=sample, channel=1, time=time)
-
-    # Intensity (magnitude of vector field)
-    intensity_pred = np.sqrt(u_pred**2 + v_pred**2)
-    intensity_tgt = np.sqrt(u_tgt**2 + v_tgt**2)
-
-    # Setup the plot
-    fig, axs = plt.subplots(2, 1, figsize=(18, 8), subplot_kw={'projection': ccrs.PlateCarree()})
-    
-    for ax, u, v, intensity, title in zip(
-        axs, 
-        [u_tgt, u_pred], 
-        [v_tgt, v_pred], 
-        [intensity_tgt, intensity_pred], 
-        ["Ground Truth Currents", "Predicted Currents"]
-    ):
-        u_scaled = u * arrow_scale
-        v_scaled = v * arrow_scale
-        skip = (slice(None, None, arrow_step), slice(None, None, arrow_step))
-        
-        im = ax.pcolormesh(lon_grid, lat_grid, intensity, cmap='Blues')
-        ax.quiver(lon_grid[skip], lat_grid[skip], u_scaled[skip], v_scaled[skip], 
-                  color='black', scale=2, width=0.003, headwidth=4)
-
-        ax.set_title(title)
-        ax.coastlines()
-        ax.add_feature(cfeature.BORDERS, linestyle=':')
-        ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='dotted')
-        
-    plt.colorbar(im, ax=ax, orientation='horizontal', pad=0.05, label='Current Intensity')
-    plt.suptitle(f"Sample {sample} | Time Step {time}", fontsize=16)
+    plt.legend()
     plt.tight_layout()
     plt.show()
+
+    # Close datasets
+    ds_pinn.close()
+    ds_fno.close()
+    ds_gnn.close()
