@@ -155,7 +155,7 @@ def train(model_type, epochs, path_train, path_val, downsampling_scale=2, experi
             print("Training Complete\n")
             print(f"Final Val Loss: {val_loss:.4f} - Training Time: {total_time:.1f} seconds")
             pd.DataFrame(metrics).to_csv(f"{PATH_METRICS}/{name}_{world_size}.csv", index=False)
-            # if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epochs, metrics)
+            if not experiment: save_checkpoint(f"{PATH_WEIGHTS}/{name}.ckpt", model, optimizer, epochs, metrics)
 
             return val_loss, total_time
         return 0, 0
