@@ -37,11 +37,11 @@ def plot_height(zos, lat, lon):
     plt.title('Sea Level Height')
     plt.show()
 
-def plot_model_metrics_linegraph(pinn_path, fno_path, gnn_path):
+def plot_model_metrics_linegraph(pinn_path, gnn_path, fno_path):
     # Load all three CSVs
     df_pinn = pd.read_csv(pinn_path)
-    df_fno = pd.read_csv(fno_path)
     df_gnn = pd.read_csv(gnn_path)
+    df_fno = pd.read_csv(fno_path)
 
     # Check columns
     for df, name in zip([df_pinn, df_fno, df_gnn], ["PINN", "FNO", "GNN"]):
@@ -73,11 +73,11 @@ def plot_model_metrics_linegraph(pinn_path, fno_path, gnn_path):
     plt.tight_layout()
     plt.show()
 
-def plot_all_loss_histories(pinn_path, fno_path, gnn_path):
+def plot_all_loss_histories(pinn_path, gnn_path, fno_path):
     # Load the CSV files
     df_pinn = pd.read_csv(pinn_path)
-    df_fno = pd.read_csv(fno_path)
     df_gnn = pd.read_csv(gnn_path)
+    df_fno = pd.read_csv(fno_path)
 
     # Create a figure with 2 subplots (Training Loss, Validation Loss)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
@@ -105,11 +105,11 @@ def plot_all_loss_histories(pinn_path, fno_path, gnn_path):
     plt.tight_layout()
     plt.show()
 
-def plot_all_accuracy_over_time(pinn_path, fno_path, gnn_path):
+def plot_all_accuracy_over_time(pinn_path, gnn_path, fno_path):
     # Load NetCDF files using xarray
     ds_pinn = xr.open_dataset(pinn_path)
-    ds_fno = xr.open_dataset(fno_path)
     ds_gnn = xr.open_dataset(gnn_path)
+    ds_fno = xr.open_dataset(fno_path)
 
     # Extract loss values
     loss_pinn = ds_pinn["loss"].values
